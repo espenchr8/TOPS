@@ -47,7 +47,10 @@ def run_modal_analysis():
     """Linearize the N45 model and calculate its eigenvalues."""
 
     print("Imported model-data file:", model_data.__file__)
-    print("No model parameters are modified by this script.")
+    print(
+        "The model-data file contains K = 15 for "
+        "12 selected STAB1 units."
+    )
 
     # -----------------------------------------------------------------------
     # Load and initialize N45
@@ -304,7 +307,7 @@ def plot_eigenvalues(results):
 
     fig.suptitle(
         "Nordic 45 (2025) – small-signal eigenvalue analysis\n"
-        "Original model parameters"
+        "12 selected STAB1 gains set to K = 15"
     )
 
     # -----------------------------------------------------------------------

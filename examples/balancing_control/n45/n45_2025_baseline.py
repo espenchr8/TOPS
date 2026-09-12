@@ -25,7 +25,7 @@ def run_simulation():
     """Run the undisturbed Nordic 45 (2025) baseline."""
 
     print("Imported model-data file:", model_data.__file__)
-    print("No disturbances or model parameters are applied by this script.")
+    print("The model uses K = 15 for 12 selected STAB1 units.")
 
     # Load and initialize the complete N45 model.
     model = model_data.load()
@@ -246,7 +246,7 @@ def plot_results(results):
 
     fig.suptitle(
         "Nordic 45 (2025) – undisturbed baseline\n"
-        "Original model parameters"
+        "12 selected STAB1 gains set to K = 15"
     )
 
     # -----------------------------------------------------------------------

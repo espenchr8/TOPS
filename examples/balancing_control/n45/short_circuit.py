@@ -9,7 +9,7 @@ import tops.ps_models.n45_2025 as model_data
 
 
 # Simulation settings.
-T_END = 10.0
+T_END = 30.0
 MAX_STEP = 5e-3
 
 # Short-circuit settings.
