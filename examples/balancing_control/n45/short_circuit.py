@@ -33,7 +33,7 @@ def run_simulation():
     gen_model = ps.gen["GEN"]
 
     # The short circuit is applied at the terminal bus of the first generator.
-    fault_generator_index = 0
+    fault_generator_index = 40
 
     fault_bus_index = int(
         gen_model.bus_idx_red["terminal"][fault_generator_index]
