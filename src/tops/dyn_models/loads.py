@@ -57,7 +57,7 @@ class Load(DAEModel):
         return self.s(x, v).real*self.sys_par['s_n']
 
     def Q(self, x, v):
-        # MVA
+        # MVAr
         return self.s(x, v).imag*self.sys_par['s_n']
 
 
