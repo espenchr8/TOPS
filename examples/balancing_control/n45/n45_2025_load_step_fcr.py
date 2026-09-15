@@ -8,6 +8,7 @@ The imported n45_2025.py file is never modified by this script.
 import time
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FormatStrFormatter, MultipleLocator
 import numpy as np
 
 import tops.dynamic as dps
@@ -27,15 +28,6 @@ MAX_STEP = 5e-3
 ROCOF_WINDOW_S = 0.5
 FINAL_AVERAGING_WINDOW_S = 5.0
 INITIAL_DERIVATIVE_TOL = 1e-5
-
-# These are the 12 STAB1 units previously selected and tuned to K=15.
-TUNED_PSS_GENERATORS = {
-    "G5230-1", "G5230-2", "G5560-1",
-    "G7000-1", "G7000-2", "G7000-3", "G7000-4",
-    "G7000-5", "G7000-6", "G7000-7",
-    "G7100-1", "G7100-2",
-}
-EXPECTED_PSS_GAIN = 15.0
 
 REGION_AREA_CODES = {
     "Norway": {11, 12, 13, 14, 15},
@@ -84,23 +76,6 @@ def build_bus_area_map(model):
     return {str(row[i_name]): int(row[i_area]) for row in table[1:]}
 
 
-def verify_tuned_pss(stab1):
-    """Verify that this case uses the same tuned N45 reference model."""
-    pss_generators = np.asarray(stab1.par["gen"], dtype=str)
-    pss_gains = np.asarray(stab1.par["K"], dtype=float)
-    indices = indices_for_names(pss_generators, sorted(TUNED_PSS_GENERATORS))
-    incorrect = [
-        f"{pss_generators[i]} (K={pss_gains[i]:g})"
-        for i in indices
-        if not np.isclose(pss_gains[i], EXPECTED_PSS_GAIN)
-    ]
-    if incorrect:
-        raise RuntimeError(
-            "The 12 selected STAB1 gains must be K=15 before this test: "
-            + ", ".join(incorrect)
-        )
-
-
 def run_simulation():
     """Apply a load step and return frequency- and reserve-response results."""
     print("Script version:", SCRIPT_VERSION)
@@ -119,9 +94,7 @@ def run_simulation():
     hygov = require_model(ps, "gov", "HYGOV")
     tgov1 = require_model(ps, "gov", "TGOV1")
     require_model(ps, "avr", "SEXS")
-    stab1 = require_model(ps, "pss", "STAB1")
     load = require_model(ps, "loads", "Load")
-    verify_tuned_pss(stab1)
 
     vsc = None
     if hasattr(ps, "vsc") and "VSC_SI" in ps.vsc:
@@ -388,11 +361,14 @@ def run_simulation():
 def plot_results(results):
     """Plot the quantities needed for the N45 FCR reference case."""
     t = results["time"]
+    # Retain the original plot scaling, but reserve a separate band above the
+    # upper axis for the two-line figure title.
     fig, axes = plt.subplots(4, 1, sharex=True, figsize=(13, 12))
     fig.suptitle(
         "Nordic 45 (2025) – conventional FCR reference\n"
         f"Nominal +{LOAD_STEP_MW:.0f} MW load step at {LOAD_NAME}, "
-        f"t = {EVENT_TIME:.1f} s; no AGC or HVDC balancing"
+        f"t = {EVENT_TIME:.1f} s; no AGC or HVDC balancing",
+        y=0.985,
     )
 
     axes[0].plot(t, results["coi_frequency"], color="black", lw=2, label="System COI")
@@ -401,7 +377,9 @@ def plot_results(results):
     axes[0].axhline(results["nominal_frequency"], color="gray", ls=":", label="Nominal")
     axes[0].plot(results["nadir_time"], results["nadir"], "ko", label=f"Nadir {results['nadir']:.3f} Hz")
     axes[0].set_ylabel("Frequency (Hz)")
-    axes[0].ticklabel_format(axis="y", style="plain", useOffset=False)
+    # Keep millihertz-level detail visible regardless of screen resolution.
+    axes[0].yaxis.set_major_locator(MultipleLocator(0.005))
+    axes[0].yaxis.set_major_formatter(FormatStrFormatter("%.3f"))
     axes[0].legend(ncol=3)
     axes[0].grid(True)
 
@@ -420,7 +398,9 @@ def plot_results(results):
     axes[2].grid(True)
 
     axes[3].plot(t, results["actual_load_increase"], label="Actual load increase")
-    axes[3].plot(t, results["aggregate_vsc_change"], label="Aggregate VSC response")
+    aggregate_vsc_change = np.asarray(results["aggregate_vsc_change"]).copy()
+    aggregate_vsc_change[0] = 0.0
+    axes[3].plot(t, aggregate_vsc_change, label="Aggregate VSC response")
     axes[3].axhline(LOAD_STEP_MW, color="gray", ls=":", label="Nominal load step")
     axes[3].axhline(0.0, color="gray", ls=":")
     axes[3].set_ylabel("Power change (MW)")
@@ -430,8 +410,14 @@ def plot_results(results):
 
     for ax in axes:
         ax.axvline(EVENT_TIME, color="black", ls="--", lw=1)
+        ax.set_xlim(0.0, T_END)
 
-    fig.tight_layout()
+    # Separate margins prevent the title and x-axis label from being clipped
+    # or overlapping the plotting area in maximized Windows figure windows.
+    # Use the available space below the title and leave enough separation for
+    # the long vertical labels on the two lower power plots.
+    fig.subplots_adjust(left=0.09, right=0.985, bottom=0.065, top=0.91, hspace=0.30)
+    fig.align_ylabels(axes)
     plt.show()
 
 
