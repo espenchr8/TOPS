@@ -52,7 +52,7 @@ def phasor(vec, start=0j, ax=None, **kwargs):
                        annotation_clip=False)
 
 
-def plot_mode_shape(mode_shape, ax=None, normalize=False, xy0=np.empty(0), linewidth=2, auto_lim=False, colors=cm.get_cmap('Set1')):
+def plot_mode_shape(mode_shape, ax=None, normalize=False, xy0=np.empty(0), linewidth=2, auto_lim=False, colors=plt.get_cmap('Set1')):
 
     if not ax:
         ax = plt.subplot(111, projection='polar')

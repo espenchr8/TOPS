@@ -88,11 +88,6 @@ class Washout(DAEModel):
 
         dX['x'][:] = self.output(x, v)
 
-    def initialize(self, x0, v0, input_value):
-        X0 = self.local_view(x0)
-        X0['x'][:] = input_value
-        return np.zeros(self.n_units)
-
 
 class TimeConstant(DAEModel):
     '''
@@ -115,8 +110,7 @@ class TimeConstant(DAEModel):
     @output
     def output(self, x, v):
         X = self.local_view(x)
-        # Never modify the solver state while evaluating an output.
-        out = X['x'].copy()
+        out = X['x']
         if np.any(self.zero_idx):
             out[self.zero_idx] = self.input(x, v)[self.zero_idx]
         return out
@@ -130,12 +124,7 @@ class TimeConstant(DAEModel):
         dX = self.local_view(dx)
         X = self.local_view(x)
         
-        coeff = np.divide(
-            1.0,
-            self.par['T'],
-            out=np.zeros(self.n_units, dtype=float),
-            where=~self.zero_idx,
-        )
+        coeff = ~self.zero_idx/(self.par['T']+self.zero_idx)  # 1/T if T is not zero, 0 otherw
         dX['x'][:] = coeff*(self.input(x, v) - X['x'])
 
 
@@ -236,61 +225,7 @@ class TimeConstantGainLims(TimeConstantLims):
         dX['x'][upper_lim_idx] *= 0
     
     def initialize(self, x0, v0, output_value):
-        X0 = self.local_view(x0)
-        X0['x'][:] = np.clip(
-            output_value,
-            self.par['V_min'],
-            self.par['V_max'],
-        )
-        return output_value/self.par['K']
-
-
-class TimeConstantLimsRate(DAEModel):
-    """First-order lag with position and symmetric rate limits."""
-
-    def state_list(self):
-        return ['x']
-
-    @output
-    def output(self, x, v):
-        X = self.local_view(x)
-        return np.clip(X['x'], self.par['V_min'], self.par['V_max'])
-
-    def initialize(self, x0, v0, output_value):
-        limited_output = np.clip(
-            output_value,
-            self.par['V_min'],
-            self.par['V_max'],
-        )
-        X0 = self.local_view(x0)
-        X0['x'][:] = limited_output
-        return limited_output
-
-    def state_derivatives(self, dx, x, v):
-        dX = self.local_view(dx)
-        X = self.local_view(x)
-
-        derivative = (self.input(x, v) - X['x'])/self.par['T']
-        derivative = np.clip(
-            derivative,
-            -self.par['Rate'],
-            self.par['Rate'],
-        )
-
-        at_lower_limit = (
-            (X['x'] <= self.par['V_min'])
-            & (derivative < 0)
-        )
-        at_upper_limit = (
-            (X['x'] >= self.par['V_max'])
-            & (derivative > 0)
-        )
-
-        dX['x'][:] = np.where(
-            at_lower_limit | at_upper_limit,
-            0.0,
-            derivative,
-        )
+        return super().initialize(x0, v0, output_value/self.par['K'])
 
 class LeadLag(DAEModel):
     '''
@@ -397,11 +332,6 @@ class WashoutGain(DAEModel):
         dX = self.local_view(dx)
         dX['x'][:] = self.output(x, v)
 
-    def initialize(self, x0, v0, input_value):
-        X0 = self.local_view(x0)
-        X0['x'][:] = self.par['K']*input_value
-        return np.zeros(self.n_units)
-
     # def initialize(self, x0, v0, output_value):
         # dx = 0 => x = Ku
         # pass
@@ -426,13 +356,9 @@ class Saturation(DAEModel):
         B = SE2*(sqrt(E2) - sqrt(E1*K))**2/(E1 - E2)**2
 
         
-        with np.errstate(divide='ignore', invalid='ignore'):
-            SE = np.divide(
-                B*(U - A)**2,
-                U,
-                out=np.zeros_like(U, dtype=float),
-                where=U > 0,
-            )
+        with np.errstate(divide='ignore'):
+            SE = B*(U - A)**2/U
+        SE[U <= 0] = 0
         
         return SE
     
@@ -445,24 +371,21 @@ class Backlash(DAEModel):
     def state_derivatives(self, dx, x, v):
         dX = self.local_view(dx)
         X = self.local_view(x)
-        db = np.asarray(self.par['db'])
-        difference = self.input(x, v) - X['x']
+        db = self.par['db']
+        if db <= 0:
+            return db*0
 
-        movement = np.where(
-            difference >= db,
-            difference - db,
-            np.where(
-                difference <= -db,
-                difference + db,
-                0.0,
-            ),
-        )
+        y = self.input(x, v)
+        x = X['x']
 
-        dX['x'][:] = np.where(
-            db > 0,
-            movement/0.01,
-            0.0,
-        )
+        if (y - x) >= db:
+            d = (y - x) - db
+        elif (y - x) <= -db:
+            d = (y - x) + db
+        else:
+            d = 0
+
+        dX['x'][:] = d/0.01
 
     @output
     def output(self, x, v):

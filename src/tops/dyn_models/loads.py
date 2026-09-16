@@ -1,6 +1,6 @@
 import numpy as np
 from tops.dyn_models.utils import DAEModel
-from tops.dyn_models.blocks import TimeConstant
+from tops.dyn_models.blocks_new import TimeConstant
 
 
 class Load(DAEModel):
