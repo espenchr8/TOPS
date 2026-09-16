@@ -9,7 +9,10 @@ import tops.solvers as dps_sol
 from tops.ps_models import n45_2025 as model_data
 
 
-# Study settings
+# =============================================================================
+# STUDY SETTINGS
+# =============================================================================
+
 EVENT_TIME = 1.0
 LOAD_NAME = "L5240-1"
 LOAD_STEP_MW = 100.0
@@ -27,18 +30,63 @@ REGION_AREA_CODES = {
 
 
 def run_simulation():
+
+    # =========================================================================
+    # MODEL LOADING AND INITIALIZATION
+    # =========================================================================
+
     model = model_data.load()
     system_base_mva = float(model["base_mva"])
     nominal_frequency = float(model["f"])
 
     ps = dps.PowerSystemModel(model=model)
     ps.init_dyn_sim()
+    
 
     gen = ps.gen["GEN"]
     load = ps.loads["Load"]
     hygov = ps.gov["HYGOV"]
     tgov1 = ps.gov["TGOV1"]
     vsc = ps.vsc.get("VSC_SI") if hasattr(ps, "vsc") else None
+
+
+    # =========================================================================
+    # INITIALIZED MODEL OVERVIEW
+    # =========================================================================
+
+    # Count the units that TOPS actually created during ps.init_dyn_sim().
+    generator_count = sum(
+        generator_model.n_units
+        for generator_model in ps.gen.values()
+    )
+
+    hygov_count = hygov.n_units
+    tgov1_count = tgov1.n_units
+    wind_vsc_count = 0
+    hvdc_vsc_count = 0
+
+    if hasattr(ps, "vsc"):
+        for vsc_model in ps.vsc.values():
+            names = np.asarray(vsc_model.par["name"], dtype=str)
+            is_wind_vsc = np.char.startswith(names, "WG")
+            wind_vsc_count += int(np.sum(is_wind_vsc))
+            hvdc_vsc_count += int(np.sum(~is_wind_vsc))
+
+    print("\nInitialized N45 model overview")
+    print("------------------------------")
+    print("Power flow ready:", ps.power_flow_ready)
+    print("Buses:", len(ps.buses))
+    print("Synchronous generators:", generator_count)
+    print("HYGOV hydro units:", hygov_count)
+    print("TGOV1 thermal units:", tgov1_count)
+    print("Wind-power VSC units:", wind_vsc_count)
+    print("HVDC VSC units:", hvdc_vsc_count)
+    print("Dynamic states:", ps.n_states)
+
+
+    # =========================================================================
+    # INITIAL EQUILIBRIUM CHECK
+    # =========================================================================
 
     # Confirm that the initialized operating point is close to equilibrium.
     v_initial = ps.solve_algebraic(0.0, ps.x0)
@@ -50,6 +98,10 @@ def run_simulation():
             f"power_flow_ready={ps.power_flow_ready}, "
             f"max |dx/dt|={max_initial_derivative:.3e}."
         )
+
+    # =========================================================================
+    # GENERATOR AND REGIONAL DATA
+    # =========================================================================
 
     # Generator data used for COI frequency and mechanical-power conversion.
     gen_names = np.asarray(gen.par["name"], dtype=str)
@@ -82,6 +134,10 @@ def run_simulation():
         for region, area_codes in REGION_AREA_CODES.items()
     }
 
+    # =========================================================================
+    # LOAD DISTURBANCE
+    # =========================================================================
+
     # Locate the load that receives the disturbance.
     load_names = np.asarray(load.par["name"], dtype=str)
     matches = np.where(load_names == LOAD_NAME)[0]
@@ -97,6 +153,10 @@ def run_simulation():
     # S = |V|^2 * conj(Y), hence delta_Y = conj(delta_S) / |V_0|^2.
     delta_s_pu = (LOAD_STEP_MW + 1j * LOAD_STEP_MVAR) / system_base_mva
     delta_y = np.conj(delta_s_pu) / abs(initial_load_voltage) ** 2
+
+    # =========================================================================
+    # INITIAL POWER VALUES
+    # =========================================================================
 
     # Initial values are subtracted later to obtain incremental responses.
     governor_p_m = gen.P_m
@@ -121,6 +181,10 @@ def run_simulation():
         f"bus {load_bus_name}, t={EVENT_TIME:.3f} s."
     )
 
+    # =========================================================================
+    # NUMERICAL SOLVER AND RESULT STORAGE
+    # =========================================================================
+
     solver = dps_sol.ModifiedEulerDAE(
         ps.state_derivatives,
         ps.solve_algebraic,
@@ -137,6 +201,10 @@ def run_simulation():
     vsc_power_values = (
         [initial_vsc_power_mw.copy()] if vsc is not None else []
     )
+
+    # =========================================================================
+    # TIME-DOMAIN SIMULATION
+    # =========================================================================
 
     event_applied = False
     next_progress = 10
@@ -176,6 +244,10 @@ def run_simulation():
         if progress >= next_progress:
             print(f"Simulation progress: {min(progress, 100)}%")
             next_progress += 10
+
+    # =========================================================================
+    # RESULT PROCESSING
+    # =========================================================================
 
     # Convert stored simulation results to arrays.
     t = np.asarray(time_values)
@@ -227,6 +299,10 @@ def run_simulation():
             vsc_power_mw - initial_vsc_power_mw[np.newaxis, :], axis=1
         )
 
+    # =========================================================================
+    # RESPONSE METRICS AND TERMINAL SUMMARY
+    # =========================================================================
+
     # Key response metrics.
     post_event = t >= EVENT_TIME
     post_idx = np.where(post_event)[0]
@@ -268,6 +344,11 @@ def run_simulation():
 
 
 def plot_results(results):
+
+    # =========================================================================
+    # FIGURE SETUP
+    # =========================================================================
+
     t = results["time"]
     fig, axes = plt.subplots(4, 1, sharex=True, figsize=(13, 12))
     fig.suptitle(
@@ -276,6 +357,10 @@ def plot_results(results):
         f"t = {EVENT_TIME:.1f} s, no AGC or HVDC balancing",
         y=0.985,
     )
+
+    # =========================================================================
+    # SYSTEM AND REGIONAL FREQUENCIES
+    # =========================================================================
 
     axes[0].plot(t, results["coi_frequency"], "k", lw=2, label="System COI")
     for region, frequency in results["regional_frequency"].items():
@@ -293,10 +378,18 @@ def plot_results(results):
     axes[0].yaxis.set_major_formatter(FormatStrFormatter("%.3f"))
     axes[0].legend(ncol=3)
 
+    # =========================================================================
+    # RATE OF CHANGE OF FREQUENCY
+    # =========================================================================
+
     axes[1].plot(t, results["rocof"], color="tab:purple", label="COI RoCoF (100 ms mean)")
     axes[1].axhline(0.0, color="gray", ls=":")
     axes[1].set_ylabel("RoCoF (Hz/s)")
     axes[1].legend()
+
+    # =========================================================================
+    # GOVERNOR AND FCR RESPONSE
+    # =========================================================================
 
     axes[2].plot(t, results["hygov_response"], label="HYGOV (hydro)")
     axes[2].plot(t, results["tgov1_response"], label="TGOV1 (thermal)")
@@ -305,6 +398,10 @@ def plot_results(results):
     axes[2].set_ylabel("Power response (MW)")
     axes[2].legend(ncol=2)
 
+    # =========================================================================
+    # LOAD AND VSC POWER CHANGES
+    # =========================================================================
+
     axes[3].plot(t, results["actual_load_increase"], label="Actual load increase")
     axes[3].plot(t, results["aggregate_vsc_change"], label="Aggregate VSC response")
     axes[3].axhline(LOAD_STEP_MW, color="gray", ls=":", label="Nominal load step")
@@ -312,6 +409,10 @@ def plot_results(results):
     axes[3].set_ylabel("Power change (MW)")
     axes[3].set_xlabel("Time (s)")
     axes[3].legend(ncol=3)
+
+    # =========================================================================
+    # FINAL FIGURE LAYOUT
+    # =========================================================================
 
     for ax in axes:
         ax.axvline(EVENT_TIME, color="black", ls="--", lw=1)
@@ -324,6 +425,10 @@ def plot_results(results):
     fig.align_ylabels(axes)
     plt.show()
 
+
+# =============================================================================
+# RUN SCRIPT
+# =============================================================================
 
 if __name__ == "__main__":
     plot_results(run_simulation())

@@ -6,11 +6,20 @@ import tops.solvers as dps_sol
 import tops.ps_models.n45_2025 as model_data
 
 
+# =============================================================================
+# SIMULATION SETTINGS
+# =============================================================================
+
 T_END = 60.0
 MAX_STEP = 5e-3
 
 
 def run_simulation():
+
+    # =========================================================================
+    # MODEL LOADING AND INITIALIZATION
+    # =========================================================================
+
     # Load the N45 data, solve the power flow and initialize dynamic states.
     model = model_data.load()
 
@@ -20,13 +29,87 @@ def run_simulation():
     gen = ps.gen["GEN"]
     nominal_frequency = float(model["f"])
 
+
+    # =========================================================================
+    # INITIALIZED MODEL OVERVIEW
+    # =========================================================================
+
+    # Count the units that TOPS actually created during ps.init_dyn_sim().
+    generator_count = sum(
+        generator_model.n_units
+        for generator_model in ps.gen.values()
+    )
+
+    hygov_count = (
+        ps.gov["HYGOV"].n_units
+        if hasattr(ps, "gov") and "HYGOV" in ps.gov
+        else 0
+    )
+
+    tgov1_count = (
+        ps.gov["TGOV1"].n_units
+        if hasattr(ps, "gov") and "TGOV1" in ps.gov
+        else 0
+    )
+
+    wind_vsc_count = 0
+    hvdc_vsc_count = 0
+
+    if hasattr(ps, "vsc"):
+        for vsc_model in ps.vsc.values():
+            names = np.asarray(
+                vsc_model.par["name"],
+                dtype=str,
+            )
+
+            # Wind-power VSC names in N45 begin with "WG".
+            is_wind_vsc = np.char.startswith(
+                names,
+                "WG",
+            )
+
+            wind_vsc_count += int(
+                np.sum(is_wind_vsc)
+            )
+
+            # The remaining N45 VSC units represent HVDC connections.
+            hvdc_vsc_count += int(
+                np.sum(~is_wind_vsc)
+            )
+
+    print("\nInitialized N45 model overview")
+    print("------------------------------")
+    print("Power flow ready:", ps.power_flow_ready)
+    print("Buses:", len(ps.buses))
+    print("Synchronous generators:", generator_count)
+    print("HYGOV hydro units:", hygov_count)
+    print("TGOV1 thermal units:", tgov1_count)
+    print("Wind-power VSC units:", wind_vsc_count)
+    print("HVDC VSC units:", hvdc_vsc_count)
+    print("Dynamic states:", ps.n_states)
+
+
+    # =========================================================================
+    # INITIAL EQUILIBRIUM CHECK
+    # =========================================================================
+
     # In an undisturbed baseline, derivatives should be close to zero because
     # the initialized model should start near dynamic equilibrium.
-    dx_initial = ps.state_derivatives(0.0, ps.x_0, ps.v_0)
+    dx_initial = ps.state_derivatives(
+        0.0,
+        ps.x_0,
+        ps.v_0,
+    )
+
     print(
         "Maximum initial derivative:",
         f"{np.max(np.abs(dx_initial)):.6e}",
     )
+
+
+    # =========================================================================
+    # CENTER-OF-INERTIA WEIGHTS
+    # =========================================================================
 
     # COI weights: inertia × generator rating × number of parallel units.
     # Larger machines with higher inertia contribute more to COI frequency.
@@ -35,6 +118,11 @@ def run_simulation():
         * np.asarray(gen.par["S_n"], dtype=float)
         * np.asarray(gen.par["N_par"], dtype=float)
     )
+
+
+    # =========================================================================
+    # NUMERICAL SOLVER
+    # =========================================================================
 
     # Modified Euler integrates the dynamic states, while TOPS solves the
     # algebraic network equations after each time step.
@@ -47,18 +135,35 @@ def run_simulation():
         max_step=MAX_STEP,
     )
 
+
+    # =========================================================================
+    # RESULT STORAGE
+    # =========================================================================
+
     # Store the initialized operating point at t = 0 before stepping forward.
     time_values = [0.0]
+
     speed_values = [
-        np.asarray(gen.speed(ps.x_0, ps.v_0), dtype=float).copy()
+        np.asarray(
+            gen.speed(ps.x_0, ps.v_0),
+            dtype=float,
+        ).copy()
     ]
+
+
+    # =========================================================================
+    # TIME-DOMAIN SIMULATION
+    # =========================================================================
 
     next_progress = 10
 
     while solver.t < T_END:
         solver.step()
 
-        time_values.append(float(solver.t))
+        time_values.append(
+            float(solver.t)
+        )
+
         speed_values.append(
             np.asarray(
                 gen.speed(solver.y, solver.v),
@@ -67,16 +172,35 @@ def run_simulation():
         )
 
         # Terminal progress indicator; it does not affect the simulation.
-        progress = int(100 * solver.t / T_END)
+        progress = int(
+            100 * solver.t / T_END
+        )
+
         if progress >= next_progress:
-            print(f"Simulation progress: {min(progress, 100)}%")
+            print(
+                f"Simulation progress: "
+                f"{min(progress, 100)}%"
+            )
             next_progress += 10
 
-    time_array = np.asarray(time_values)
-    speed = np.asarray(speed_values)
+
+    # =========================================================================
+    # RESULT PROCESSING
+    # =========================================================================
+
+    time_array = np.asarray(
+        time_values
+    )
+
+    speed = np.asarray(
+        speed_values
+    )
 
     # TOPS returns relative generator-speed deviations in per unit.
-    generator_frequency = nominal_frequency * (1.0 + speed)
+    generator_frequency = (
+        nominal_frequency
+        * (1.0 + speed)
+    )
 
     # COI frequency is the inertia-weighted system frequency.
     coi_speed = np.average(
@@ -84,7 +208,11 @@ def run_simulation():
         axis=1,
         weights=inertia_weights,
     )
-    coi_frequency = nominal_frequency * (1.0 + coi_speed)
+
+    coi_frequency = (
+        nominal_frequency
+        * (1.0 + coi_speed)
+    )
 
     # Maximum minus minimum generator frequency reveals small relative motion
     # that is not visible in the common COI-frequency curve.
@@ -93,14 +221,24 @@ def run_simulation():
         - np.min(generator_frequency, axis=1)
     ) * 1e6
 
+
+    # =========================================================================
+    # TERMINAL SUMMARY
+    # =========================================================================
+
+    print("\nBaseline result")
+    print("---------------")
+
     print(
         "Maximum COI-frequency deviation:",
         f"{np.max(np.abs(coi_frequency - nominal_frequency)):.6e} Hz",
     )
+
     print(
         "Maximum generator-frequency spread:",
         f"{np.max(frequency_spread_microhz):.6e} microHz",
     )
+
     print(
         "Final COI frequency:",
         f"{coi_frequency[-1]:.12f} Hz",
@@ -115,6 +253,11 @@ def run_simulation():
 
 
 def plot_results(results):
+
+    # =========================================================================
+    # FIGURE SETUP
+    # =========================================================================
+
     t = results["time"]
     nominal_frequency = results["nominal_frequency"]
 
@@ -130,30 +273,47 @@ def plot_results(results):
         "Initialized model without disturbance"
     )
 
+
+    # =========================================================================
+    # COI FREQUENCY
+    # =========================================================================
+
     axes[0].plot(
         t,
         results["coi_frequency"],
         color="black",
         label="COI frequency",
     )
+
     axes[0].axhline(
         nominal_frequency,
         color="gray",
         linestyle=":",
         label="Nominal frequency",
     )
+
     axes[0].set_ylim(
         nominal_frequency - 0.05,
         nominal_frequency + 0.05,
     )
-    axes[0].set_ylabel("Frequency (Hz)")
+
+    axes[0].set_ylabel(
+        "Frequency (Hz)"
+    )
+
     axes[0].ticklabel_format(
         axis="y",
         style="plain",
         useOffset=False,
     )
+
     axes[0].legend()
     axes[0].grid(True)
+
+
+    # =========================================================================
+    # GENERATOR-FREQUENCY SPREAD
+    # =========================================================================
 
     axes[1].plot(
         t,
@@ -161,15 +321,36 @@ def plot_results(results):
         color="tab:blue",
         label="Generator-frequency spread (max − min)",
     )
-    axes[1].axhline(0.0, color="gray", linestyle=":")
-    axes[1].set_ylabel("Frequency spread\n($\\mu$Hz)")
-    axes[1].set_xlabel("Time (s)")
+
+    axes[1].axhline(
+        0.0,
+        color="gray",
+        linestyle=":",
+    )
+
+    axes[1].set_ylabel(
+        "Frequency spread\n($\\mu$Hz)"
+    )
+
+    axes[1].set_xlabel(
+        "Time (s)"
+    )
+
     axes[1].legend()
     axes[1].grid(True)
+
+
+    # =========================================================================
+    # FINAL FIGURE LAYOUT
+    # =========================================================================
 
     fig.tight_layout()
     plt.show()
 
+
+# =============================================================================
+# RUN SCRIPT
+# =============================================================================
 
 if __name__ == "__main__":
     results = run_simulation()
