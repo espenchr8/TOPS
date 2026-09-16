@@ -1,4 +1,4 @@
-from tops.dyn_models.blocks_new import *
+from tops.dyn_models.blocks import *
 from tops.dyn_models.utils import auto_init
 
 

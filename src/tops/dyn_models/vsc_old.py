@@ -1,6 +1,6 @@
 import numpy as np
 
-from tops.dyn_models.blocks_new import (
+from tops.dyn_models.blocks import (
     DAEModel,
     PIRegulator,
     TimeConstant,

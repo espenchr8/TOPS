@@ -1,4 +1,4 @@
-from tops.dyn_models.blocks_new import *
+from tops.dyn_models.blocks import *
 
 class PLL1(DAEModel):
     def __init__(self, *args, **kwargs):
