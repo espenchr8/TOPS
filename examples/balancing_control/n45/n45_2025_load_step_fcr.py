@@ -367,7 +367,7 @@ def plot_results(results):
     fig.suptitle(
         "Nordic 45 (2025) – conventional FCR reference\n"
         f"Nominal +{LOAD_STEP_MW:.0f} MW load step at {LOAD_NAME}, "
-        f"t = {EVENT_TIME:.1f} s; no AGC or HVDC balancing",
+        f"t = {EVENT_TIME:.1f} s, no AGC or HVDC balancing",
         y=0.985,
     )
 

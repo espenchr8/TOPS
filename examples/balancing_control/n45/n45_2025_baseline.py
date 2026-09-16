@@ -246,7 +246,7 @@ def plot_results(results):
 
     fig.suptitle(
         "Nordic 45 (2025) – undisturbed baseline\n"
-        "12 selected STAB1 gains set to K = 15"
+        "Initialized model without disturbance"
     )
 
     # -----------------------------------------------------------------------
