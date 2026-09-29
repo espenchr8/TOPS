@@ -110,25 +110,29 @@ def scan(data, outage, title):
 
 
 def plot_line_flows(base, outage):
-    """Compare MVA flows. The removed line is marked 'out', not zero load."""
+    """Show which connected lines change most after L7-8-1 trips."""
     names, base_from, base_to = flows(base)
     out_names, out_from, out_to = flows(outage)
-    base_mva = [max(abs(a), abs(b)) for a, b in zip(base_from, base_to)]
+    base_mva = {name: max(abs(a), abs(b))
+                for name, a, b in zip(names, base_from, base_to)}
     out_mva = {name: max(abs(a), abs(b))
                for name, a, b in zip(out_names, out_from, out_to)}
-    x = np.arange(len(names))
+    # L7-8-1 is absent in N-1, so only compare lines still in service.
+    changes = [(name, 100*(out_mva[name]/base_mva[name] - 1))
+               for name in out_names]
+    changes.sort(key=lambda item: item[1])
 
-    plt.figure(figsize=(9, 4))
-    plt.bar(x - 0.2, base_mva, width=0.4, label="All lines")
-    plt.bar(x + 0.2, [out_mva.get(name, 0) for name in names],
-            width=0.4, label="N-1: L7-8-1 out")
-    plt.text(x[list(names).index("L7-8-1")] + 0.2, 25, "out",
-             rotation=90, ha="center", va="bottom")
-    plt.xticks(x, names, rotation=35, ha="right")
-    plt.ylabel("Highest |S| at either line end [MVA]")
-    plt.title("Line flows before and after one line outage")
-    plt.grid(axis="y", alpha=0.3)
-    plt.legend()
+    plt.figure(figsize=(8, 4))
+    for i, (name, pct) in enumerate(changes):
+        plt.barh(i, pct, color="tab:orange" if name == "L7-8-2" else "tab:blue")
+        plt.text(pct + 2, i, f"{base_mva[name]:.0f} -> {out_mva[name]:.0f} MVA",
+                 va="center", fontsize=9)
+    plt.yticks(range(len(changes)), [name for name, _ in changes])
+    plt.xlim(min(-5, min(pct for _, pct in changes)-5),
+             max(pct for _, pct in changes)*1.55)
+    plt.xlabel("Change in line |S| after the outage [%]")
+    plt.title("N-1: L7-8-1 out (remaining lines)")
+    plt.grid(axis="x", alpha=0.3)
     plt.tight_layout()
 
 
