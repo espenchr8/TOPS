@@ -52,40 +52,57 @@ def main():
         raise RuntimeError("Outage power flow did not converge")
     show_results("N-1: L7-8-1 removed", ps_outage)
 
-    # P-V scan: increase both loads with the same factor (P and Q).
-    # G1, G2 and G4 keep their P setpoints; slack generator G3 balances the change.
-    factors, b8_voltages = [], []
+    # P-V scan: increase the two loads, shared across four generators.
+    # G3 (slack) takes its share plus changes in losses.
     bus8 = np.flatnonzero(ps.buses["name"] == "B8")[0]
-    print("\nLOAD SCAN (intact network)")
-    print("Factor    B8 [pu]    G3 [MW]    B7-B8 total [MW]")
-    for factor in np.arange(1.0, 1.51, 0.02):
-        scan_model = copy.deepcopy(model_data.load())
-        for load in scan_model["loads"][1:]:
-            load[2] *= factor  # P in MW
-            load[3] *= factor  # Q in MVAr: same power factor
+    base_load = sum(row[2] for row in model_data.load()["loads"][1:])
+    for name, removed in (("All lines in service", None), ("L7-8-1 outage", "L7-8-1")):
+        factors, voltages = [], []
+        print(f"\nLOAD SCAN: {name}")
+        print("Factor   B8 [pu]  G3 [MW]  B7-B8 [MW]  max |S_gen| [MVA]")
+        for factor in np.arange(1.0, 1.51, 0.02):
+            scan_model = copy.deepcopy(model_data.load())
+            for load in scan_model["loads"][1:]:
+                load[2] *= factor  # P in MW
+                load[3] *= factor  # Q in MVAr, keeping Q/P constant
+            # Three specified generators each supply 1/4 of the extra load.
+            # The slack generator G3 supplies the remaining 1/4 and changed losses.
+            generators = scan_model["generators"]["GEN"]
+            for index in (1, 2, 4):  # Rows for G1, G2, G4; row 0 is header.
+                generators[index][4] += (factor - 1) * base_load / 4
+            if removed is not None:
+                scan_model["lines"] = [line for line in scan_model["lines"]
+                                       if line[0] != removed]
 
-        scan_ps = dps.PowerSystemModel(model=scan_model)
-        scan_ps.pf_max_it = 30  # More iterations near a difficult operating point.
-        scan_ps.power_flow()
-        if not scan_ps.power_flow_ready:
-            print(f"No convergence at factor {factor:.2f}; the limit is not established.")
-            break
+            scan_ps = dps.PowerSystemModel(model=scan_model)
+            scan_ps.pf_max_it = 30
+            scan_ps.power_flow()
+            if not scan_ps.power_flow_ready:
+                print(f"No convergence at {factor:.2f}; exact limit unknown.")
+                break
 
-        voltage = abs(scan_ps.v_0[bus8])
-        gen_power = scan_ps.load_flow_soln[scan_ps.gen["GEN"]].real
-        g3 = gen_power[2]  # G3 is connected to slack bus B3.
-        line = scan_ps.lines["Line"]
-        flow = line.s_from(None, scan_ps.v_0).real * scan_ps.s_n
-        tie = sum(p for name, p in zip(line.par["name"], flow)
-                  if name in ("L7-8-1", "L7-8-2"))
-        print(f"{factor:5.2f}     {voltage:7.4f}    {g3:8.1f}         {tie:8.1f}")
-        factors.append(factor)
-        b8_voltages.append(voltage)
+            gen = scan_ps.gen["GEN"]
+            gen_s = scan_ps.load_flow_soln[gen]  # MW + j MVAr
+            if np.any(abs(gen_s) > gen.par["S_n"] + 1e-6):
+                print(f"Generator MVA rating exceeded at {factor:.2f}; scan stops.")
+                break
 
-    plt.plot(factors, b8_voltages, "o-")
+            line = scan_ps.lines["Line"]
+            flow = line.s_from(None, scan_ps.v_0).real * scan_ps.s_n
+            tie = sum(p for line_name, p in zip(line.par["name"], flow)
+                      if line_name in ("L7-8-1", "L7-8-2"))
+            voltage = abs(scan_ps.v_0[bus8])
+            print(f"{factor:5.2f}    {voltage:7.4f}  {gen_s[2].real:7.1f}"
+                  f"      {tie:7.1f}          {max(abs(gen_s)):7.1f}")
+            factors.append(factor)
+            voltages.append(voltage)
+        if factors:
+            plt.plot(factors, voltages, "o-", label=name)
+
     plt.xlabel("Load factor at B7 and B9")
     plt.ylabel("Voltage at B8 [pu]")
-    plt.title("Stepwise P-V scan (intact network)")
+    plt.title("Stepwise P-V scan within generator MVA ratings")
+    plt.legend()
     plt.grid(True)
     plt.tight_layout()
     plt.show()
