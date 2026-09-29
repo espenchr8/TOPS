@@ -1,4 +1,8 @@
-"""Static Kundur study: base case and one line outage."""
+"""Part 1 static: AC load flow, a line outage and stepwise P-V scans.
+
+Run from TOPS root: python examples/balancing_control/kundur/static_kundur_course.py
+Requires the separate TOPS input file tops/ps_models/k2a_course.py.
+"""
 
 import copy
 
@@ -7,140 +11,144 @@ import numpy as np
 import tops.dynamic as dps
 from tops.ps_models import k2a_course as model_data
 
-V_MIN = 0.95  # Study screening criterion, not a documented Kundur grid-code limit.
-# Illustrative screening limits for this test case, NOT sourced equipment ratings.
-# Chosen above intact flows to test N-1 loading; replace for a real thermal study.
-# The data field S_n=100 is an impedance base in TOPS, not a thermal rating.
+# Chosen study criteria, NOT documented grid-code or equipment ratings.
+V_MIN = 0.95
 LINE_LIMITS_MVA = {
-    "L5-6": 900, "L6-7": 1500,
-    "L7-8-1": 500, "L7-8-2": 500,
-    "L8-9-1": 500, "L8-9-2": 500,
-    "L9-10": 1500, "L10-11": 900,
+    "L5-6": 900, "L6-7": 1500, "L7-8-1": 500, "L7-8-2": 500,
+    "L8-9-1": 500, "L8-9-2": 500, "L9-10": 1500, "L10-11": 900,
 }
+# The line data field S_n=100 is TOPS's impedance base, NOT a thermal limit.
 
 
-def show_results(name, ps):
-    """Print the quantities used to assess and check the load flow."""
-    v = ps.v_0  # Complex bus voltages from TOPS power flow, in pu.
-    lines = ps.lines["Line"]
-    s_from = lines.s_from(None, v) * ps.s_n  # MVA at the from end.
-    s_to = lines.s_to(None, v) * ps.s_n      # MVA at the to end.
+def solve(data, outage=None):
+    """Make a fresh network and run TOPS's Newton-Raphson AC power flow."""
+    case = copy.deepcopy(data)
+    if outage:
+        # The header row's first element is 'name', so it stays in the table.
+        case["lines"] = [row for row in case["lines"] if row[0] != outage]
+    ps = dps.PowerSystemModel(model=case)
+    ps.pf_max_it = 30
+    ps.power_flow()  # TOPS builds Ybus and finds complex bus voltages.
+    return ps if ps.power_flow_ready else None
 
-    print(f"\n{name}")
-    for bus, voltage in zip(ps.buses["name"], v):
-        print(f"{bus}: |V| = {abs(voltage):.4f} pu")
-    low = [(bus, abs(voltage)) for bus, voltage in zip(ps.buses["name"], v)
-           if abs(voltage) < V_MIN]
-    print(f"Buses below chosen {V_MIN:.2f} pu criterion: " +
-          (", ".join(f"{bus} ({value:.4f})" for bus, value in low) if low else "none"))
-    for line, power in zip(lines.par["name"], s_from):
-        print(f"{line}: P_from = {power.real:.1f} MW, |S_from| = {abs(power):.1f} MVA")
-    for line, power_from, power_to in zip(lines.par["name"], s_from, s_to):
-        loading = max(abs(power_from), abs(power_to))
-        if line in LINE_LIMITS_MVA:
-            limit = LINE_LIMITS_MVA[line]
-            print(f"{line}: assumed limit, max |S| {loading:.1f}/{limit:.0f} MVA "
-                  f"({100 * loading / limit:.1f}%)")
-        else:
-            print(f"{line}: max |S| {loading:.1f} MVA; thermal rating not provided")
 
-    # Active power balance: generator output = load + line/transformer losses.
+def line_powers(ps):
+    """TOPS returns S=V*conj(I) in pu; multiply by system MVA base."""
+    line = ps.lines["Line"]
+    return (line.par["name"],
+            line.s_from(None, ps.v_0) * ps.s_n,
+            line.s_to(None, ps.v_0) * ps.s_n)
+
+
+def show_results(title, ps):
+    """Show the base/N-1 state and verify its active-power balance."""
+    names, from_s, to_s = line_powers(ps)
+    print(f"\n{title}: converged AC power flow")
+    print("Bus voltage [pu] (chosen criterion 0.95 pu):")
+    for bus, v in zip(ps.buses["name"], ps.v_0):
+        print(f"  {bus:4s} {abs(v):.4f}" +
+              ("  BELOW criterion" if abs(v) < V_MIN else ""))
+
+    print("Line: P_from [MW], max |S| at either end [MVA] / assumed limit:")
+    for name, sf, st in zip(names, from_s, to_s):
+        value = max(abs(sf), abs(st))
+        limit = LINE_LIMITS_MVA.get(name)
+        comparison = (f" / {limit} ({100*value/limit:.1f}%)"
+                      if limit else " / not specified")
+        print(f"  {name:8s} {sf.real:7.1f} MW, {value:7.1f}{comparison}")
+
+    # Loads and G1/G2/G4 P are specified; slack generator G3 balances losses.
     generation = sum(np.sum(s.real) for s in ps.load_flow_soln.values())
     load = sum(np.sum(m.par["P"]) for m in ps.loads.values())
-    line_losses = np.sum((s_from + s_to).real)
-    trafo_losses = sum(np.sum(m.p_line(None, v)) * ps.s_n for m in ps.trafos.values())
+    line_losses = np.sum((from_s + to_s).real)
+    trafo_losses = sum(np.sum(m.p_line(None, ps.v_0)) * ps.s_n
+                       for m in ps.trafos.values())
     losses = line_losses + trafo_losses
-    print(f"Balance: {generation:.2f} MW generation = {load:.2f} MW load + {losses:.2f} MW losses")
-    print(f"Balance error: {generation - load - losses:.6f} MW")
+    print(f"P balance [MW]: generation {generation:.2f} = load {load:.2f}"
+          f" + losses {losses:.2f}; error {generation-load-losses:.6f}")
+
+
+def load_scan(data, outage, title):
+    """Repeated independent load flows: upper P-V branch, not a true nose curve."""
+    print(f"\nLOAD SCAN: {title}")
+    print("factor  B8 [pu]  G3 [MW]  max |S_gen| [MVA]  most loaded line [%]")
+    base_load = sum(row[2] for row in data["loads"][1:])
+    factors, voltages = [], []
+    first_thermal = None
+
+    for step in range(26):  # 1.00 to 1.50 in steps of 0.02.
+        factor = 1 + 0.02 * step
+        case = copy.deepcopy(data)
+        for row in case["loads"][1:]:
+            row[2] *= factor  # Active load P, MW.
+            row[3] *= factor  # Reactive load Q, MVAr; Q/P stays constant.
+        # Generator table row 0 is a header. G1/G2/G4 each get 1/4 of
+        # extra load; G3 (slack) gets 1/4 plus the change in network losses.
+        for index in (1, 2, 4):
+            case["generators"]["GEN"][index][4] += (factor - 1)*base_load/4
+
+        ps = solve(case, outage)
+        if ps is None:
+            print(f"At {factor:.2f}: no convergence within 30 iterations;"
+                  " the voltage-collapse limit is NOT established.")
+            break
+
+        gen = ps.gen["GEN"]
+        gen_s = ps.load_flow_soln[gen]  # MW + j MVAr.
+        if np.any(abs(gen_s) > gen.par["S_n"]):
+            print(f"At {factor:.2f}: generator 900 MVA nameplate exceeded;"
+                  " this point is excluded and the scan stops.")
+            break
+
+        names, from_s, to_s = line_powers(ps)
+        loading = [(name, 100*max(abs(sf), abs(st))/LINE_LIMITS_MVA[name])
+                   for name, sf, st in zip(names, from_s, to_s)
+                   if name in LINE_LIMITS_MVA]
+        worst_name, worst_pct = max(loading, key=lambda pair: pair[1])
+        if first_thermal is None and worst_pct > 100:
+            first_thermal = factor
+            print(f"  Assumed line criterion first exceeded at {factor:.2f}:"
+                  f" {worst_name}, {worst_pct:.1f}%.")
+
+        b8 = np.flatnonzero(ps.buses["name"] == "B8")[0]
+        v8 = abs(ps.v_0[b8])
+        print(f"{factor:5.2f}   {v8:7.4f}   {gen_s[2].real:7.1f}"
+              f"          {max(abs(gen_s)):7.1f}         {worst_name} {worst_pct:5.1f}%")
+        factors.append(factor)
+        voltages.append(v8)
+
+    if first_thermal is not None:
+        print(f"Chosen line criterion reached by factor {first_thermal:.2f};"
+              " later points illustrate P-V behavior beyond that assumption.")
+    return factors, voltages
 
 
 def main():
-    # Same TOPS model and data-loading pattern as in the dynamic baseline.
-    model = model_data.load()
-    ps = dps.PowerSystemModel(model=model)
-    ps.power_flow()
-    if not ps.power_flow_ready:
-        raise RuntimeError("Base-case power flow did not converge")
-    show_results("BASE CASE", ps)
+    # Same model_data.load() -> PowerSystemModel pattern as the master baseline.
+    data = model_data.load()  # Buses, lines, trafos, loads, shunts, generators.
+    print(f"Kundur model from k2a_course.py: {data['base_mva']} MVA base,"
+          f" slack {data['slack_bus']}.")
+    print("Static: AC network and generator P/V setpoints."
+          " H, GOV, AVR and PSS are for the dynamic model.")
+    print("0.95 pu and line MVA limits are assumed study criteria.")
 
-    # A new model is needed because the network changes after a line outage.
-    outage_model = copy.deepcopy(model_data.load())
-    outage_model["lines"] = [
-        line for line in outage_model["lines"]
-        if line[0] != "L7-8-1"  # Keep the header and all other lines.
-    ]
-    ps_outage = dps.PowerSystemModel(model=outage_model)
-    ps_outage.power_flow()
-    if not ps_outage.power_flow_ready:
-        raise RuntimeError("Outage power flow did not converge")
-    show_results("N-1: L7-8-1 removed", ps_outage)
+    base = solve(data)
+    if base is None:
+        raise RuntimeError("Base power flow did not converge")
+    show_results("BASE CASE: all lines connected", base)
 
-    # P-V scan: increase the two loads, shared across four generators.
-    # G3 (slack) takes its share plus changes in losses.
-    bus8 = np.flatnonzero(ps.buses["name"] == "B8")[0]
-    base_load = sum(row[2] for row in model_data.load()["loads"][1:])
-    for name, removed in (("All lines in service", None), ("L7-8-1 outage", "L7-8-1")):
-        factors, voltages = [], []
-        print(f"\nLOAD SCAN: {name}")
-        print("Factor   B8 [pu]  G3 [MW]  B7-B8 [MW]  max |S_gen| [MVA]")
-        for factor in np.arange(1.0, 1.51, 0.02):
-            scan_model = copy.deepcopy(model_data.load())
-            for load in scan_model["loads"][1:]:
-                load[2] *= factor  # P in MW
-                load[3] *= factor  # Q in MVAr, keeping Q/P constant
-            # Three specified generators each supply 1/4 of the extra load.
-            # The slack generator G3 supplies the remaining 1/4 and changed losses.
-            generators = scan_model["generators"]["GEN"]
-            for index in (1, 2, 4):  # Rows for G1, G2, G4; row 0 is header.
-                generators[index][4] += (factor - 1) * base_load / 4
-            if removed is not None:
-                scan_model["lines"] = [line for line in scan_model["lines"]
-                                       if line[0] != removed]
+    outage = solve(data, "L7-8-1")
+    if outage is None:
+        raise RuntimeError("N-1 power flow did not converge")
+    show_results("N-1: L7-8-1 removed; L7-8-2 remains", outage)
 
-            scan_ps = dps.PowerSystemModel(model=scan_model)
-            scan_ps.pf_max_it = 30
-            scan_ps.power_flow()
-            if not scan_ps.power_flow_ready:
-                print(f"No convergence at {factor:.2f}; exact limit unknown.")
-                break
-
-            gen = scan_ps.gen["GEN"]
-            gen_s = scan_ps.load_flow_soln[gen]  # MW + j MVAr
-            over_gen = np.flatnonzero(abs(gen_s) > gen.par["S_n"] + 1e-6)
-            if len(over_gen):
-                i = over_gen[0]
-                print(f"{gen.par['name'][i]}: |S| {abs(gen_s[i]):.1f} > "
-                      f"{gen.par['S_n'][i]:.0f} MVA at {factor:.2f}; scan stops.")
-                break
-
-            line = scan_ps.lines["Line"]
-            from_s = line.s_from(None, scan_ps.v_0) * scan_ps.s_n
-            to_s = line.s_to(None, scan_ps.v_0) * scan_ps.s_n
-            exceeded = [(line_name, max(abs(sf), abs(st)), LINE_LIMITS_MVA[line_name])
-                        for line_name, sf, st in zip(line.par["name"], from_s, to_s)
-                        if line_name in LINE_LIMITS_MVA
-                        and max(abs(sf), abs(st)) > LINE_LIMITS_MVA[line_name]]
-            if exceeded:
-                for line_name, loading, limit in exceeded:
-                    print(f"{line_name}: |S| {loading:.1f} > assumed {limit:.0f} MVA "
-                          f"at {factor:.2f}")
-                print("Scan stops at the assumed thermal screening limit.")
-                break
-            flow = line.s_from(None, scan_ps.v_0).real * scan_ps.s_n
-            tie = sum(p for line_name, p in zip(line.par["name"], flow)
-                      if line_name in ("L7-8-1", "L7-8-2"))
-            voltage = abs(scan_ps.v_0[bus8])
-            print(f"{factor:5.2f}    {voltage:7.4f}  {gen_s[2].real:7.1f}"
-                  f"      {tie:7.1f}          {max(abs(gen_s)):7.1f}")
-            factors.append(factor)
-            voltages.append(voltage)
-        if factors:
-            plt.plot(factors, voltages, "o-", label=name)
-
+    for removed, label in ((None, "all lines"), ("L7-8-1", "N-1 L7-8-1")):
+        factors, voltages = load_scan(data, removed, label)
+        plt.plot(factors, voltages, "o-", label=label)
+    plt.axhline(V_MIN, color="gray", linestyle="--", label="chosen 0.95 pu")
     plt.xlabel("Load factor at B7 and B9")
     plt.ylabel("Voltage at B8 [pu]")
-    plt.title("Stepwise P-V scan")
-    plt.axhline(V_MIN, color="gray", linestyle="--", label="Chosen 0.95 pu criterion")
+    plt.title("Stepwise P-V scan (converged points)")
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
