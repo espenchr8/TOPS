@@ -1,74 +1,55 @@
-"""Part 1: static load flow, one line outage, and a simple P-V scan."""
+"""Static Kundur study: base case and one line outage."""
 
 import copy
 
-import matplotlib.pyplot as plt
 import numpy as np
 import tops.dynamic as dps
-from tops.ps_models import k2a_course
+from tops.ps_models import k2a_course as model_data
 
 
-def solve(load_scale=1.0, outaged_line=None):
-    # Each case starts from untouched Kundur data.
-    data = copy.deepcopy(k2a_course.load())
-    for load in data["loads"][1:]:
-        load[2] *= load_scale  # P [MW]
-        load[3] *= load_scale  # Q [MVAr], constant power factor
-    if outaged_line is not None:
-        data["lines"] = [data["lines"][0]] + [
-            line for line in data["lines"][1:] if line[0] != outaged_line
-        ]
-
-    ps = dps.PowerSystemModel(model=data)
-    ps.power_flow()
-    if not ps.power_flow_ready:
-        raise RuntimeError(f"Power flow failed: scale={load_scale}, outage={outaged_line}")
-    return ps
-
-
-def report(label, ps):
-    print(f"\n{label}")
-    print("Bus     |V| [pu]   angle [deg]")
-    for bus, v in zip(ps.buses["name"], ps.v_0):
-        print(f"{bus:5s}   {abs(v):7.4f}      {np.angle(v, deg=True):8.2f}")
-
-    # TOPS returns branch power in pu on the system base (900 MVA).
+def show_results(name, ps):
+    """Print the quantities used to assess and check the load flow."""
+    v = ps.v_0  # Complex bus voltages from TOPS power flow, in pu.
     lines = ps.lines["Line"]
-    s_from = lines.s_from(None, ps.v_0) * ps.s_n
-    s_to = lines.s_to(None, ps.v_0) * ps.s_n
-    print("Line       P_from [MW]  |S_from| [MVA]  |S_to| [MVA]")
-    for name, sf, st in zip(lines.par["name"], s_from, s_to):
-        print(f"{name:9s}  {sf.real:10.1f}      {abs(sf):10.1f}      {abs(st):10.1f}")
-    print(f"Lowest voltage: {min(abs(ps.v_0)):.4f} pu")
+    s_from = lines.s_from(None, v) * ps.s_n  # MVA at the from end.
+    s_to = lines.s_to(None, v) * ps.s_n      # MVA at the to end.
+
+    print(f"\n{name}")
+    for bus, voltage in zip(ps.buses["name"], v):
+        print(f"{bus}: |V| = {abs(voltage):.4f} pu")
+    for line, power in zip(lines.par["name"], s_from):
+        print(f"{line}: P_from = {power.real:.1f} MW, |S_from| = {abs(power):.1f} MVA")
+
+    # Active power balance: generator output = load + line/transformer losses.
+    generation = sum(np.sum(s.real) for s in ps.load_flow_soln.values())
+    load = sum(np.sum(m.par["P"]) for m in ps.loads.values())
+    line_losses = np.sum((s_from + s_to).real)
+    trafo_losses = sum(np.sum(m.p_line(None, v)) * ps.s_n for m in ps.trafos.values())
+    losses = line_losses + trafo_losses
+    print(f"Balance: {generation:.2f} MW generation = {load:.2f} MW load + {losses:.2f} MW losses")
+    print(f"Balance error: {generation - load - losses:.6f} MW")
 
 
 def main():
-    base = solve()
-    report("BASE CASE", base)
+    # Same TOPS model and data-loading pattern as in the dynamic baseline.
+    model = model_data.load()
+    ps = dps.PowerSystemModel(model=model)
+    ps.power_flow()
+    if not ps.power_flow_ready:
+        raise RuntimeError("Base-case power flow did not converge")
+    show_results("BASE CASE", ps)
 
-    # One of the parallel tie lines is removed; B7-B8 remains connected.
-    outage = solve(outaged_line="L7-8-1")
-    report("N-1: L7-8-1 disconnected", outage)
-
-    # Repeated load flows trace the upper branch of a P-V characteristic.
-    scales, voltages = [], []
-    bus8 = np.flatnonzero(base.buses["name"] == "B8")[0]
-    for scale in np.arange(1.0, 2.01, 0.05):
-        try:
-            ps = solve(load_scale=float(scale))
-        except RuntimeError:
-            print(f"Last successful scan point before scale {scale:.2f}")
-            break
-        scales.append(scale)
-        voltages.append(abs(ps.v_0[bus8]))
-
-    plt.plot(scales, voltages, "o-")
-    plt.xlabel("Load multiplier (P and Q at B7 and B9)")
-    plt.ylabel("Voltage at B8 [pu]")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-    
+    # A new model is needed because the network changes after a line outage.
+    outage_model = copy.deepcopy(model_data.load())
+    outage_model["lines"] = [
+        line for line in outage_model["lines"]
+        if line[0] != "L7-8-1"  # Keep the header and all other lines.
+    ]
+    ps_outage = dps.PowerSystemModel(model=outage_model)
+    ps_outage.power_flow()
+    if not ps_outage.power_flow_ready:
+        raise RuntimeError("Outage power flow did not converge")
+    show_results("N-1: L7-8-1 removed", ps_outage)
 
 
 if __name__ == "__main__":
