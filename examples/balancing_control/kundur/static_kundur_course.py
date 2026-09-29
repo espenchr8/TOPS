@@ -8,6 +8,15 @@ import tops.dynamic as dps
 from tops.ps_models import k2a_course as model_data
 
 V_MIN = 0.95  # Study screening criterion, not a documented Kundur grid-code limit.
+# Illustrative screening limits for this test case, NOT sourced equipment ratings.
+# Chosen above intact flows to test N-1 loading; replace for a real thermal study.
+# The data field S_n=100 is an impedance base in TOPS, not a thermal rating.
+LINE_LIMITS_MVA = {
+    "L5-6": 900, "L6-7": 1500,
+    "L7-8-1": 500, "L7-8-2": 500,
+    "L8-9-1": 500, "L8-9-2": 500,
+    "L9-10": 1500, "L10-11": 900,
+}
 
 
 def show_results(name, ps):
@@ -26,6 +35,14 @@ def show_results(name, ps):
           (", ".join(f"{bus} ({value:.4f})" for bus, value in low) if low else "none"))
     for line, power in zip(lines.par["name"], s_from):
         print(f"{line}: P_from = {power.real:.1f} MW, |S_from| = {abs(power):.1f} MVA")
+    for line, power_from, power_to in zip(lines.par["name"], s_from, s_to):
+        loading = max(abs(power_from), abs(power_to))
+        if line in LINE_LIMITS_MVA:
+            limit = LINE_LIMITS_MVA[line]
+            print(f"{line}: assumed limit, max |S| {loading:.1f}/{limit:.0f} MVA "
+                  f"({100 * loading / limit:.1f}%)")
+        else:
+            print(f"{line}: max |S| {loading:.1f} MVA; thermal rating not provided")
 
     # Active power balance: generator output = load + line/transformer losses.
     generation = sum(np.sum(s.real) for s in ps.load_flow_soln.values())
@@ -94,6 +111,13 @@ def main():
                 break
 
             line = scan_ps.lines["Line"]
+            from_s = line.s_from(None, scan_ps.v_0) * scan_ps.s_n
+            to_s = line.s_to(None, scan_ps.v_0) * scan_ps.s_n
+            if any(max(abs(sf), abs(st)) > LINE_LIMITS_MVA[line_name]
+                   for line_name, sf, st in zip(line.par["name"], from_s, to_s)
+                   if line_name in LINE_LIMITS_MVA):
+                print(f"An assumed line limit exceeded at {factor:.2f}; scan stops.")
+                break
             flow = line.s_from(None, scan_ps.v_0).real * scan_ps.s_n
             tie = sum(p for line_name, p in zip(line.par["name"], flow)
                       if line_name in ("L7-8-1", "L7-8-2"))
@@ -107,7 +131,7 @@ def main():
 
     plt.xlabel("Load factor at B7 and B9")
     plt.ylabel("Voltage at B8 [pu]")
-    plt.title("Stepwise P-V scan within generator MVA ratings")
+    plt.title("Stepwise P-V scan")
     plt.axhline(V_MIN, color="gray", linestyle="--", label="Chosen 0.95 pu criterion")
     plt.legend()
     plt.grid(True)
