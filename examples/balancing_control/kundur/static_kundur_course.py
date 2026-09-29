@@ -109,48 +109,18 @@ def scan(data, outage, title):
     return factors, voltages
 
 
-def plot_line_flows(base, outage):
-    """Show which connected lines change most after L7-8-1 trips."""
-    names, base_from, base_to = flows(base)
-    out_names, out_from, out_to = flows(outage)
-    base_mva = {name: max(abs(a), abs(b))
-                for name, a, b in zip(names, base_from, base_to)}
-    out_mva = {name: max(abs(a), abs(b))
-               for name, a, b in zip(out_names, out_from, out_to)}
-    # L7-8-1 is absent in N-1, so only compare lines still in service.
-    changes = [(name, 100*(out_mva[name]/base_mva[name] - 1))
-               for name in out_names]
-    changes.sort(key=lambda item: item[1])
-
-    plt.figure(figsize=(8, 4))
-    for i, (name, pct) in enumerate(changes):
-        plt.barh(i, pct, color="tab:orange" if name == "L7-8-2" else "tab:blue")
-        plt.text(pct + 2, i, f"{base_mva[name]:.0f} -> {out_mva[name]:.0f} MVA",
-                 va="center", fontsize=9)
-    plt.yticks(range(len(changes)), [name for name, _ in changes])
-    plt.xlim(min(-5, min(pct for _, pct in changes)-5),
-             max(pct for _, pct in changes)*1.55)
-    plt.xlabel("Change in line |S| after the outage [%]")
-    plt.title("N-1: L7-8-1 out (remaining lines)")
-    plt.grid(axis="x", alpha=0.3)
-    plt.tight_layout()
-
-
 def main():
     data = model_data.load()  # Same data loading as your dynamic baseline.
     print("Kundur data from k2a_course.py. TOPS AC Newton-Raphson power flow.")
     print(f"System base {data['base_mva']} MVA. Slack bus {data['slack_bus']}.")
     print("The 0.95 pu threshold and line limits are assumptions, not equipment data.")
-    cases = []
     for title, removed in (("BASE: all lines connected", None),
                            ("N-1: L7-8-1 out, L7-8-2 connected", "L7-8-1")):
         ps = solve(data, removed)
         if ps is None:
             raise RuntimeError(f"Power flow failed for {title}")
         show_case(title, ps)
-        cases.append(ps)
 
-    plt.figure()
     for title, outage in (("all lines", None), ("N-1 L7-8-1", "L7-8-1")):
         factors, voltages = scan(data, outage, title)
         plt.plot(factors, voltages, "o-", label=title)
@@ -161,7 +131,6 @@ def main():
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plot_line_flows(cases[0], cases[1])
     plt.show()
 
 
