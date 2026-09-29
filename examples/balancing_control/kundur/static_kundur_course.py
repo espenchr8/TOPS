@@ -35,14 +35,14 @@ def flows(ps):
 def show_case(title, ps):
     names, sf, st = flows(ps)
     print(f"\n=== {title} ===")
-    print(f"Bus voltages. Our chosen lower threshold is {V_MIN:.2f} pu")
+    print(f"Bus voltages. The chosen lower threshold is {V_MIN:.2f} pu")
     for bus, v in zip(ps.buses["name"], ps.v_0):
         mark = "  below chosen threshold" if abs(v) < V_MIN else ""
         print(f"{bus:4s} {abs(v):.4f} pu{mark}")
 
-    print("\nLines: MW at the from end, and highest MVA at either end")
-    print("Line limits below are assumptions for this study.")
-    print("Line       P from       Highest S     Assumed limit   Used")
+    print("Calculated line flows compared with our chosen MVA limits")
+    print("These MVA limits are examples, not verified line ratings.")
+    print("Line       P from       Highest S     Chosen limit    Used")
     for name, a, b in zip(names, sf, st):
         s = max(abs(a), abs(b))
         limit = LINE_LIMITS[name]
@@ -95,7 +95,7 @@ def scan(data, outage, title):
         name, pct = max(ratios, key=lambda pair: pair[1])
         if pct > 100 and first_limit is None:
             first_limit = factor
-            print(f"At {factor:.2f}: {name} exceeds our assumed line limit.")
+            print(f"At {factor:.2f}: {name} exceeds the assumed line limit.")
         b8 = np.flatnonzero(ps.buses["name"] == "B8")[0]
         v8 = abs(ps.v_0[b8])
         print(f"{factor:5.2f}    {v8:7.4f}  {gen_s[2].real:7.1f}"
@@ -104,7 +104,7 @@ def scan(data, outage, title):
         voltages.append(v8)
 
     if first_limit is not None:
-        print(f"From factor {first_limit:.2f}, later curve points exceed our"
+        print(f"From factor {first_limit:.2f}, later curve points exceed the"
               " assumed line limit.")
     return factors, voltages
 
