@@ -106,17 +106,25 @@ def main():
 
             gen = scan_ps.gen["GEN"]
             gen_s = scan_ps.load_flow_soln[gen]  # MW + j MVAr
-            if np.any(abs(gen_s) > gen.par["S_n"] + 1e-6):
-                print(f"Generator MVA rating exceeded at {factor:.2f}; scan stops.")
+            over_gen = np.flatnonzero(abs(gen_s) > gen.par["S_n"] + 1e-6)
+            if len(over_gen):
+                i = over_gen[0]
+                print(f"{gen.par['name'][i]}: |S| {abs(gen_s[i]):.1f} > "
+                      f"{gen.par['S_n'][i]:.0f} MVA at {factor:.2f}; scan stops.")
                 break
 
             line = scan_ps.lines["Line"]
             from_s = line.s_from(None, scan_ps.v_0) * scan_ps.s_n
             to_s = line.s_to(None, scan_ps.v_0) * scan_ps.s_n
-            if any(max(abs(sf), abs(st)) > LINE_LIMITS_MVA[line_name]
-                   for line_name, sf, st in zip(line.par["name"], from_s, to_s)
-                   if line_name in LINE_LIMITS_MVA):
-                print(f"An assumed line limit exceeded at {factor:.2f}; scan stops.")
+            exceeded = [(line_name, max(abs(sf), abs(st)), LINE_LIMITS_MVA[line_name])
+                        for line_name, sf, st in zip(line.par["name"], from_s, to_s)
+                        if line_name in LINE_LIMITS_MVA
+                        and max(abs(sf), abs(st)) > LINE_LIMITS_MVA[line_name]]
+            if exceeded:
+                for line_name, loading, limit in exceeded:
+                    print(f"{line_name}: |S| {loading:.1f} > assumed {limit:.0f} MVA "
+                          f"at {factor:.2f}")
+                print("Scan stops at the assumed thermal screening limit.")
                 break
             flow = line.s_from(None, scan_ps.v_0).real * scan_ps.s_n
             tie = sum(p for line_name, p in zip(line.par["name"], flow)
