@@ -67,8 +67,8 @@ def main():
     plt.ylabel("Voltage at B8 [pu]")
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig("kundur_pv_course.png", dpi=180)
-    print("\nSaved kundur_pv_course.png")
+    plt.show()
+    
 
 
 if __name__ == "__main__":
