@@ -7,6 +7,8 @@ import numpy as np
 import tops.dynamic as dps
 from tops.ps_models import k2a_course as model_data
 
+V_MIN = 0.95  # Study screening criterion, not a documented Kundur grid-code limit.
+
 
 def show_results(name, ps):
     """Print the quantities used to assess and check the load flow."""
@@ -18,6 +20,10 @@ def show_results(name, ps):
     print(f"\n{name}")
     for bus, voltage in zip(ps.buses["name"], v):
         print(f"{bus}: |V| = {abs(voltage):.4f} pu")
+    low = [(bus, abs(voltage)) for bus, voltage in zip(ps.buses["name"], v)
+           if abs(voltage) < V_MIN]
+    print(f"Buses below chosen {V_MIN:.2f} pu criterion: " +
+          (", ".join(f"{bus} ({value:.4f})" for bus, value in low) if low else "none"))
     for line, power in zip(lines.par["name"], s_from):
         print(f"{line}: P_from = {power.real:.1f} MW, |S_from| = {abs(power):.1f} MVA")
 
@@ -102,6 +108,7 @@ def main():
     plt.xlabel("Load factor at B7 and B9")
     plt.ylabel("Voltage at B8 [pu]")
     plt.title("Stepwise P-V scan within generator MVA ratings")
+    plt.axhline(V_MIN, color="gray", linestyle="--", label="Chosen 0.95 pu criterion")
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
