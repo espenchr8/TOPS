@@ -259,7 +259,7 @@ def main():
     plt.axhline(V_MIN, color="gray", ls="--", label="chosen 0.95 pu")
     plt.xlabel("Total load increase at B7 and B9 [MW]")
     plt.ylabel("B8 voltage [pu]")
-    plt.title("B8 voltage during load increase")
+    plt.title("Stepwise P–V scan at B8")
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
