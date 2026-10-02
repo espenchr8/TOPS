@@ -196,13 +196,8 @@ def scan(data, outage, title):
             # The exact crossing lies between this and the previous scan point.
             b8 = np.flatnonzero(ps.buses["name"] == "B8")[0]
             voltage = abs(ps.v_0[b8])
-            plt.plot(added_load, voltage, "rx", ms=9, mew=2)
-            label = "N-1" if outage else "All lines"
-            plt.annotate(f"{label}: generator rating exceeded\n"
-                         f"{added_load:.1f} MW added load",
-                         (added_load, voltage), xytext=(-8, 18),
-                         textcoords="offset points", ha="right", fontsize=8,
-                         arrowprops=dict(arrowstyle="->", color="gray"))
+            plt.plot(added_load, voltage, "rx", ms=8, mew=2,
+                     label="First point above generator MVA rating" if not outage else "_nolegend_")
             print("This point is shown as a cross, outside the curve.")
             print("This is a capacity check, not a voltage-collapse limit.")
             break
@@ -254,7 +249,7 @@ def main():
     print("Both loads now increase. Production sharing stays the same as before.")
     print("This scan starts from the original data, without the production shift.")
 
-    plt.figure(figsize=(7, 4))
+    plt.figure(figsize=(7, 4.5))
     for title, outage in (("all lines", None), ("N-1 L7-8-1", "L7-8-1")):
         factors, voltages = scan(data, outage, title)
         # Convert the load factors to total added active load in MW.
@@ -264,7 +259,7 @@ def main():
     plt.axhline(V_MIN, color="gray", ls="--", label="chosen 0.95 pu")
     plt.xlabel("Total load increase at B7 and B9 [MW]")
     plt.ylabel("B8 voltage [pu]")
-    plt.title("Stepwise P-V scan, not a full nose curve")
+    plt.title("B8 voltage during load increase")
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
