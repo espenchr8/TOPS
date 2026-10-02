@@ -81,29 +81,41 @@ def show_case(title, ps):
 
 def compare_cases(cases):
     """Compare the four operating points, including every remaining line."""
-    fig, axes = plt.subplots(2, 1, figsize=(9, 7))
+    # Two comparisons keep the effect of each change easy to see.
+    groups = (("Effect of increased transfer", cases[:2]),
+              ("Line outage and changed generation", [cases[0], cases[2], cases[3]]))
+    colors = {"Base": "tab:blue", "Higher transfer": "tab:orange",
+              "N-1": "tab:green", "N-1 with changed generation": "tab:red"}
+    buses = ("B7", "B8", "B9")
     line_names = list(LINE_LIMITS)
     positions = np.arange(len(line_names))
-    width = 0.2
-    for i, (label, ps) in enumerate(cases):
-        axes[0].plot(ps.buses["name"], abs(ps.v_0), "o-", label=label)
-        names, sf, st = flows(ps)
-        loading = {name: 100 * max(abs(a), abs(b)) / LINE_LIMITS[name]
-                   for name, a, b in zip(names, sf, st)}
-        # A missing bar means the line is disconnected, not lightly loaded.
-        values = [loading.get(name, np.nan) for name in line_names]
-        axes[1].bar(positions + (i - 1.5) * width, values, width, label=label)
-    axes[0].axhline(V_MIN, color="gray", ls="--", label="Chosen 0.95 pu")
-    axes[0].set_ylabel("Bus voltage [pu]")
-    axes[0].set_title("Voltage before and after changes in operation")
-    axes[1].axhline(100, color="gray", ls="--")
-    axes[1].set_xticks(positions, line_names, rotation=30)
-    axes[1].set_ylabel("Use of assumed MVA limit [%]")
-    axes[1].set_title("Line loading (missing bar = disconnected line)")
-    for ax in axes:
-        ax.grid(True, axis="y", alpha=0.3)
-        ax.legend(fontsize=8, ncol=2)
-    fig.tight_layout()
+    for title, group in groups:
+        fig, axes = plt.subplots(2, 1, figsize=(9, 7))
+        width = 0.8 / len(group)
+        for i, (label, ps) in enumerate(group):
+            indices = [np.flatnonzero(ps.buses["name"] == bus)[0] for bus in buses]
+            axes[0].plot(buses, abs(ps.v_0[indices]), "o-",
+                         color=colors[label], label=label)
+            names, sf, st = flows(ps)
+            loading = {name: 100 * max(abs(a), abs(b)) / LINE_LIMITS[name]
+                       for name, a, b in zip(names, sf, st)}
+            # No bar is drawn for the disconnected line.
+            values = [loading.get(name, np.nan) for name in line_names]
+            offset = (i - (len(group) - 1) / 2) * width
+            axes[1].bar(positions + offset, values, width,
+                        color=colors[label], label=label)
+        axes[0].axhline(V_MIN, color="gray", ls="--", label="Chosen 0.95 pu")
+        axes[0].set_ylabel("Bus voltage [pu]")
+        axes[0].set_title("Voltages at B7, B8 and B9")
+        axes[1].axhline(100, color="gray", ls="--", label="Assumed limit")
+        axes[1].set_xticks(positions, line_names, rotation=30)
+        axes[1].set_ylabel("Use of assumed MVA limit [%]")
+        axes[1].set_title("Line loading (missing bar = disconnected line)")
+        for ax in axes:
+            ax.grid(True, axis="y", alpha=0.3)
+            ax.legend(fontsize=8, ncol=2)
+        fig.suptitle(title)
+        fig.tight_layout()
 
     # Compare the corrective action with N-1, rather than with the base case.
     before, after = cases[2][1], cases[3][1]
@@ -183,7 +195,7 @@ def main():
             ("Base", None, 0),
             ("Higher transfer", None, TRANSFER_CHANGE),
             ("N-1", "L7-8-1", 0),
-            ("N-1 with redispatch", "L7-8-1", -TRANSFER_CHANGE)):
+            ("N-1 with changed generation", "L7-8-1", -TRANSFER_CHANGE)):
         ps = solve(data, removed, transfer)
         if ps is None:
             raise RuntimeError(f"Power flow failed for {title}")
