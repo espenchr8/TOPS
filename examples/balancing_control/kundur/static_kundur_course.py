@@ -7,7 +7,7 @@ import tops.dynamic as dps
 from tops.ps_models import k2a_course as model_data
 
 # Chosen limits for comparison, not documented operating limits.
-SHOW_DETAILS = False  # True prints all buses, lines and scan points.
+SHOW_DETAILS = True # True prints all buses, lines and scan points.
 V_MIN = 0.95
 TRANSFER_CHANGE = 100.0  # MW shifted between areas, not extra total demand.
 LINE_LIMITS = dict(zip(
