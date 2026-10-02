@@ -7,6 +7,7 @@ import tops.dynamic as dps
 from tops.ps_models import k2a_course as model_data
 
 # Chosen limits for comparison, not documented operating limits.
+SHOW_DETAILS = False  # True prints all buses, lines and scan points.
 V_MIN = 0.95
 TRANSFER_CHANGE = 100.0  # MW shifted between areas, not extra total demand.
 LINE_LIMITS = dict(zip(
@@ -82,8 +83,8 @@ def show_case(title, ps):
 def compare_cases(cases):
     """Compare the four operating points, including every remaining line."""
     # Two comparisons keep the effect of each change easy to see.
-    groups = (("Effect of increased transfer", cases[:2]),
-              ("Line outage and changed generation", [cases[0], cases[2], cases[3]]))
+    groups = (("Line outage and changed generation",
+               [cases[0], cases[2], cases[3]]),)
     colors = {"Base": "tab:blue", "Higher transfer": "tab:orange",
               "N-1": "tab:green", "N-1 with changed generation": "tab:red"}
     buses = ("B7", "B8", "B9")
@@ -117,19 +118,39 @@ def compare_cases(cases):
         fig.suptitle(title)
         fig.tight_layout()
 
-    # Compare the corrective action with N-1, rather than with the base case.
-    before, after = cases[2][1], cases[3][1]
-    print("\n=== DID THE N-1 ACTION HELP? ===")
-    for bus in ("B7", "B8", "B9"):
-        idx = np.flatnonzero(before.buses["name"] == bus)[0]
-        print(f"{bus}: {abs(before.v_0[idx]):.4f} -> {abs(after.v_0[idx]):.4f} pu")
-    old_names, old_sf, old_st = flows(before)
-    new_names, new_sf, new_st = flows(after)
-    old = {n: max(abs(a), abs(b)) for n, a, b in zip(old_names, old_sf, old_st)}
-    print("Line MVA changes after the action (negative means lower loading)")
-    for name, a, b in zip(new_names, new_sf, new_st):
-        print(f"{name}: {max(abs(a), abs(b)) - old[name]:+.1f} MVA")
-    print("Check both voltages and line loading. Improvement in one does not guarantee both.")
+def show_summary(cases):
+    """One row per case keeps the changes and results together."""
+    print("\n=== 1. PRODUCTION CHANGES AND ONE LINE OUTAGE ===")
+    print("Loads stay unchanged. N-1 means L7-8-1 is disconnected.")
+    print(f"Higher transfer: G1/G2 each +{TRANSFER_CHANGE/2:.0f} MW, G4 -{TRANSFER_CHANGE/2:.0f} MW.")
+    print("N-1 with changed generation reverses that production change.")
+    print("G3 balances the remaining demand and losses in every case.")
+    print("\nCase                         B8 [pu]  B7->B8 [MW]  Losses [MW]  Highest line use")
+    errors = []
+    for title, ps in cases:
+        names, sf, st = flows(ps)
+        tie = sum(a.real for n, a in zip(names, sf) if n in ("L7-8-1", "L7-8-2"))
+        losses = np.sum((sf + st).real) + sum(
+            np.sum(t.p_line(None, ps.v_0))*ps.s_n for t in ps.trafos.values())
+        generation = sum(np.sum(v.real) for v in ps.load_flow_soln.values())
+        load = sum(np.sum(m.par["P"]) for m in ps.loads.values())
+        errors.append(abs(generation - load - losses))
+        ratios = [(n, 100*max(abs(a), abs(b))/LINE_LIMITS[n])
+                  for n, a, b in zip(names, sf, st)]
+        line, pct = max(ratios, key=lambda item: item[1])
+        b8 = np.flatnonzero(ps.buses["name"] == "B8")[0]
+        print(f"{title:28s} {abs(ps.v_0[b8]):7.4f} {tie:12.1f}"
+              f" {losses:12.2f}  {line} {pct:.1f}%")
+        low = [n for n, v in zip(ps.buses["name"], ps.v_0) if abs(v) < V_MIN]
+        over = [n for n, ratio in ratios if ratio > 100]
+        print("  Below 0.95 pu: " + (", ".join(low) or "none")
+              + " | Above assumed line limit: " + (", ".join(over) or "none"))
+        gen = ps.gen["GEN"]
+        if np.any(abs(ps.load_flow_soln[gen]) > gen.par["S_n"]):
+            print("  A generator exceeds its MVA rating.")
+    print(f"\nLargest power balance error across these cases: {max(errors):.3e} MW")
+    print("The figure compares Base, N-1 and the changed generation after N-1.")
+
 
 
 def scan(data, outage, title):
@@ -138,7 +159,8 @@ def scan(data, outage, title):
     print("Factor 1.00 is the original load. Factor 1.10 means 10% more P and Q.")
     print("G1, G2 and G4 each take 1/4 of the added load.")
     print("G3 takes the rest and the change in losses.")
-    print("Factor  B8 [pu]  G3 [MW]  Largest generator [MVA]  Most loaded line")
+    if SHOW_DETAILS:
+        print("Factor  B8 [pu]  G3 [MW]  Largest generator [MVA]  Most loaded line")
     base_p = sum(row[2] for row in data["loads"][1:])
     factors, voltages, first_limit = [], [], None
 
@@ -171,14 +193,17 @@ def scan(data, outage, title):
             print(f"At {factor:.2f}: {name} exceeds our assumed line limit.")
         b8 = np.flatnonzero(ps.buses["name"] == "B8")[0]
         v8 = abs(ps.v_0[b8])
-        print(f"{factor:5.2f}    {v8:7.4f}  {gen_s[2].real:7.1f}"
-              f"          {max(abs(gen_s)):7.1f}          {name} {pct:5.1f}%")
+        if SHOW_DETAILS:
+            print(f"{factor:5.2f}    {v8:7.4f}  {gen_s[2].real:7.1f}"
+                  f"          {max(abs(gen_s)):7.1f}          {name} {pct:5.1f}%")
         factors.append(factor)
         voltages.append(v8)
 
     if first_limit is not None:
         print(f"From factor {first_limit:.2f}, later curve points exceed our"
               " assumed line limit.")
+    if factors:
+        print(f"Last plotted factor: {factors[-1]:.2f}, B8 voltage: {voltages[-1]:.4f} pu")
     return factors, voltages
 
 
@@ -187,9 +212,7 @@ def main():
     print("Kundur data from k2a_course.py. TOPS AC Newton-Raphson power flow.")
     print(f"System base {data['base_mva']} MVA. Slack bus {data['slack_bus']}.")
     print("The 0.95 pu threshold and line limits are assumptions, not equipment data.")
-    print(f"Transfer test: shift {TRANSFER_CHANGE:.0f} MW of production to area 1.")
-    print("N-1 action: shift the same amount to area 2 instead, relative to the base case.")
-    print("Loads stay unchanged in these four cases. G3 balances changes in losses.")
+
     cases = []
     for title, removed, transfer in (
             ("Base", None, 0),
@@ -199,9 +222,14 @@ def main():
         ps = solve(data, removed, transfer)
         if ps is None:
             raise RuntimeError(f"Power flow failed for {title}")
-        show_case(title, ps)
+        if SHOW_DETAILS:
+            show_case(title, ps)
         cases.append((title, ps))
+    show_summary(cases)
     compare_cases(cases)
+    print("\n=== 2. SEPARATE LOAD SCAN ===")
+    print("Both loads now increase. Production sharing stays the same as before.")
+    print("This scan starts from the original data, without the production shift.")
 
     plt.figure(figsize=(7, 4))
     for title, outage in (("all lines", None), ("N-1 L7-8-1", "L7-8-1")):
