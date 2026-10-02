@@ -192,7 +192,18 @@ def scan(data, outage, title):
                       f"Q = {gen_s[i].imag:.1f} MVAr")
                 print(f"  Apparent power = {abs(gen_s[i]):.1f} MVA")
                 print(f"  Generator rating = {gen.par['S_n'][i]:.0f} MVA")
-            print("This point is not included in the curve.")
+            # Show the first sampled point above the rating as a separate cross.
+            # The exact crossing lies between this and the previous scan point.
+            b8 = np.flatnonzero(ps.buses["name"] == "B8")[0]
+            voltage = abs(ps.v_0[b8])
+            plt.plot(added_load, voltage, "rx", ms=9, mew=2)
+            label = "N-1" if outage else "All lines"
+            plt.annotate(f"{label}: generator rating exceeded\n"
+                         f"{added_load:.1f} MW added load",
+                         (added_load, voltage), xytext=(-8, 18),
+                         textcoords="offset points", ha="right", fontsize=8,
+                         arrowprops=dict(arrowstyle="->", color="gray"))
+            print("This point is shown as a cross, outside the curve.")
             print("This is a capacity check, not a voltage-collapse limit.")
             break
 
