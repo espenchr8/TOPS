@@ -7,7 +7,7 @@ import tops.dynamic as dps
 from tops.ps_models import k2a_course as model_data
 
 # Chosen limits for comparison, not documented operating limits.
-SHOW_DETAILS = True # True prints all buses, lines and scan points.
+SHOW_DETAILS = False  # True prints all buses, lines and scan points.
 V_MIN = 0.95
 TRANSFER_CHANGE = 100.0  # MW shifted between areas, not extra total demand.
 LINE_LIMITS = dict(zip(
@@ -180,8 +180,20 @@ def scan(data, outage, title):
             break
         gen = ps.gen["GEN"]
         gen_s = ps.load_flow_soln[gen]
-        if np.any(abs(gen_s) > gen.par["S_n"]):
-            print(f"Stop at {factor:.2f}: a generator exceeds its MVA rating.")
+        # Apparent power includes both active and reactive power.
+        overloaded = np.flatnonzero(abs(gen_s) > gen.par["S_n"])
+        if len(overloaded):
+            added_load = (factor - 1) * base_p
+            print("\nScan stops because a generator exceeds its MVA rating.")
+            print(f"Total load increase: {added_load:.1f} MW "
+                  f"({100 * (factor - 1):.0f}%)")
+            for i in overloaded:
+                print(f"{gen.par['name'][i]}: P = {gen_s[i].real:.1f} MW, "
+                      f"Q = {gen_s[i].imag:.1f} MVAr")
+                print(f"  Apparent power = {abs(gen_s[i]):.1f} MVA")
+                print(f"  Generator rating = {gen.par['S_n'][i]:.0f} MVA")
+            print("This point is not included in the curve.")
+            print("This is a capacity check, not a voltage-collapse limit.")
             break
 
         names, sf, st = flows(ps)
@@ -234,9 +246,12 @@ def main():
     plt.figure(figsize=(7, 4))
     for title, outage in (("all lines", None), ("N-1 L7-8-1", "L7-8-1")):
         factors, voltages = scan(data, outage, title)
-        plt.plot(factors, voltages, "o-", label=title)
+        # Convert the load factors to total added active load in MW.
+        base_load = sum(row[2] for row in data["loads"][1:])
+        added_load = (np.asarray(factors) - 1) * base_load
+        plt.plot(added_load, voltages, "o-", label=title)
     plt.axhline(V_MIN, color="gray", ls="--", label="chosen 0.95 pu")
-    plt.xlabel("Load factor at B7 and B9")
+    plt.xlabel("Total load increase at B7 and B9 [MW]")
     plt.ylabel("B8 voltage [pu]")
     plt.title("Stepwise P-V scan, not a full nose curve")
     plt.grid(True)
