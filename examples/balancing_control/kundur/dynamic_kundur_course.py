@@ -9,7 +9,9 @@ from tops.ps_models import k2a_course as model_data
 T_END = 60.0
 DT = 0.005
 T_EVENT = 5.0
-LOAD_INCREASE = 0.01  # Add 1% of the initial B9 load admittance.
+LOAD_STEP_MW = 17.67  # Added active demand at the pre-event B9 voltage.
+# The added load keeps B9's initial Q/P ratio and is a fixed admittance.
+# Its actual MW therefore changes when the voltage changes.
 
 
 def simulate(disturbed=False):
@@ -34,7 +36,7 @@ def simulate(disturbed=False):
 
     v0 = ps.solve_algebraic(0, ps.x0)
     dx0 = ps.state_derivatives(0, ps.x0, v0)
-    label = "1% B9 load increase" if disturbed else "No disturbance"
+    label = f"B9 load step: {LOAD_STEP_MW:.2f} MW at pre-event voltage" if disturbed else "No disturbance"
     print(f"\n=== {label} ===")
     print(f"Power flow ready. Dynamic states: {ps.n_states}")
     print(f"Largest initial state derivative: {max(abs(dx0)):.3e}")
@@ -52,11 +54,13 @@ def simulate(disturbed=False):
         if disturbed and step == event_step:
             # TOPS turns this load into a fixed admittance after initialization.
             # Add a small parallel load through the network modification matrix.
-            extra_y = LOAD_INCREASE * load.y_load[load_idx]
+            # Scale the existing admittance to the requested MW at this voltage.
+            pre_event_p = abs(sol.v[b9])**2 * load.y_load[load_idx].real * ps.s_n
+            extra_y = (LOAD_STEP_MW / pre_event_p) * load.y_load[load_idx]
             ps.y_bus_red_mod[b9, b9] += extra_y
             sol.v[:] = ps.solve_algebraic(sol.t, sol.y)
             extra_p = abs(sol.v[b9])**2 * extra_y.real * ps.s_n
-            print(f"At {sol.t:.2f} s: B9 load admittance increases by 1%.")
+            print(f"At {sol.t:.2f} s: add a B9 load rated {LOAD_STEP_MW:.2f} MW at the pre-event voltage.")
             print(f"Added demand just after the change: {extra_p:.2f} MW")
             print("Demand then varies with the square of the B9 voltage.")
 
@@ -75,7 +79,12 @@ def simulate(disturbed=False):
     tail = t >= T_END - 5
     print(f"Largest generator frequency deviation: "
           f"{np.max(abs(frequency-f0)):.6e} Hz")
-    print(f"Lowest COI frequency: {min(coi):.6f} Hz")
+    # Nadir is the lowest COI frequency in the simulated post-event interval.
+    nadir_idx = np.flatnonzero(t >= T_EVENT)[np.argmin(coi[t >= T_EVENT])]
+    print(f"Lowest COI frequency in this run: {coi[nadir_idx]:.6f} Hz "
+          f"at {t[nadir_idx]:.2f} s")
+    if disturbed and nadir_idx == len(t) - 1:
+        print("The minimum is at the end of the run, not an earlier local dip.")
     print(f"Final COI frequency: {coi[-1]:.6f} Hz")
     print(f"COI frequency range in the last 5 s: {np.ptp(coi[tail]):.6e} Hz")
     print(f"Change in total mechanical power: {pm[-1]-pm[0]:+.3f} MW")
@@ -91,7 +100,7 @@ def simulate(disturbed=False):
 
 def main():
     print("Kundur data from k2a_course.py. Dynamic RMS simulation in TOPS.")
-    print("Time solver: Modified Euler DAE. Time step: 0.005 s")
+    print(f"Time solver: Modified Euler DAE. Time step: {DT:g} s")
     print("Both runs start from the original static base case.")
     baseline = simulate()
     response = simulate(disturbed=True)
@@ -100,22 +109,29 @@ def main():
     t, freq, coi, pm, v8, names = response
     for i, name in enumerate(names):
         axes[0].plot(t, freq[:, i], lw=0.8, alpha=0.6, label=name)
-    axes[0].plot(t, coi, color="black", lw=1.5, label="COI")
+    axes[0].plot(t, coi, color="black", lw=1.5, label="COI (inertia-weighted average)")
     axes[0].plot(baseline[0], baseline[2], "--", color="gray", label="No disturbance")
     axes[0].set_ylabel("Frequency [Hz]")
     axes[0].ticklabel_format(axis="y", useOffset=False)
-    axes[1].plot(t, pm-pm[0], label="Load increase")
+    nadir_idx = np.flatnonzero(t >= T_EVENT)[np.argmin(coi[t >= T_EVENT])]
+    axes[0].plot(t[nadir_idx], coi[nadir_idx], "rx", ms=7, mew=2,
+                 label=f"Run minimum: {coi[nadir_idx]:.4f} Hz at {t[nadir_idx]:.1f} s")
+    axes[0].set_title("Generator frequencies and system average")
+    axes[1].plot(t, pm-pm[0], label="With B9 load step")
     axes[1].plot(baseline[0], baseline[3]-baseline[3][0], "--", label="No disturbance")
-    axes[1].set_ylabel("Added mechanical\npower [MW]")
-    axes[2].plot(t, v8, label="Load increase")
+    axes[1].set_ylabel("Change in total\nmechanical power [MW]")
+    axes[1].set_title("Combined turbine response of G1-G4")
+    axes[2].plot(t, v8, label="With B9 load step")
     axes[2].plot(baseline[0], baseline[4], "--", label="No disturbance")
     axes[2].set_ylabel("B8 voltage [pu]")
+    axes[2].set_title("Voltage at B8")
     axes[2].set_xlabel("Time [s]")
     for ax in axes:
-        ax.axvline(T_EVENT, color="gray", ls=":")
+        ax.axvline(T_EVENT, color="gray", ls=":", label="B9 load added")
         ax.grid(True)
         ax.legend(fontsize=8, ncol=3)
-    fig.suptitle("Kundur RMS response to a small B9 load increase at 5 s")
+    fig.suptitle(f"Kundur RMS response: B9 load step at {T_EVENT:g} s\n"
+                 f"{LOAD_STEP_MW:g} MW at pre-event voltage, voltage-dependent load")
     fig.tight_layout()
     plt.show()
 
