@@ -9,9 +9,19 @@ from tops.ps_models import k2a_course as model_data
 T_END = 60.0
 DT = 0.005
 T_EVENT = 5.0
-LOAD_STEP_MW = 17.67  # Added active demand at the pre-event B9 voltage.
+LOAD_STEP_MW = 50.0  # Added active demand at the pre-event B9 voltage.
 # The added load keeps B9's initial Q/P ratio and is a fixed admittance.
 # Its actual MW therefore changes when the voltage changes.
+
+
+def power_summary(ps, x, v, extra_y, b9):
+    """Actual active demand and network losses at the current voltage, in MW."""
+    original = sum(np.sum(m.P(x, v)) for m in ps.loads.values())
+    # The added load is in the network matrix, not in ps.loads.
+    added = abs(v[b9])**2 * extra_y.real * ps.s_n
+    losses = sum(np.sum((m.s_from(x, v) + m.s_to(x, v)).real) * ps.s_n
+                 for group in (ps.lines, ps.trafos) for m in group.values())
+    return np.array([original, added, losses])
 
 
 def simulate(disturbed=False):
@@ -49,6 +59,8 @@ def simulate(disturbed=False):
     sol = dps_sol.ModifiedEulerDAE(
         ps.state_derivatives, ps.solve_algebraic, 0, ps.x0, T_END, max_step=DT)
     times, speeds, mechanical, voltages = [], [], [], []
+    extra_y = 0j
+    initial_power = power_summary(ps, sol.y, sol.v, extra_y, b9)
     event_step = round(T_EVENT / DT)
     for step in range(round(T_END / DT) + 1):
         if disturbed and step == event_step:
@@ -67,7 +79,7 @@ def simulate(disturbed=False):
         times.append(sol.t)
         speeds.append(gen.speed(sol.y, sol.v).copy())
         mechanical.append(np.sum(gen.P_m(sol.y, sol.v) * p_base))
-        voltages.append(abs(sol.v[b8]))
+        voltages.append(abs(sol.v[[b8, b9]]))
         if step < round(T_END / DT):
             sol.step()
 
@@ -75,7 +87,8 @@ def simulate(disturbed=False):
     frequency = f0 * (1 + np.asarray(speeds))
     coi = np.average(frequency, axis=1, weights=weights)
     pm = np.asarray(mechanical)
-    v8 = np.asarray(voltages)
+    voltage = np.asarray(voltages)
+    v8, v9 = voltage[:, 0], voltage[:, 1]
     tail = t >= T_END - 5
     print(f"Largest generator frequency deviation: "
           f"{np.max(abs(frequency-f0)):.6e} Hz")
@@ -89,13 +102,30 @@ def simulate(disturbed=False):
     print(f"COI frequency range in the last 5 s: {np.ptp(coi[tail]):.6e} Hz")
     print(f"Change in total mechanical power: {pm[-1]-pm[0]:+.3f} MW")
     print(f"B8 voltage: initial {v8[0]:.4f} pu, final {v8[-1]:.4f} pu")
+    print(f"B9 voltage: initial {v9[0]:.4f} pu, final {v9[-1]:.4f} pu")
     if not disturbed:
         print(f"Largest B8 voltage drift: {max(abs(v8-v8[0])):.3e} pu")
         print("Frequency, voltage and mechanical power should stay almost constant.")
     else:
         print("Check the curves for a frequency dip and increased mechanical power.")
         print("Droop control can leave a frequency offset after the response settles.")
-    return t, frequency, coi, pm, v8, gen.par["name"]
+    if disturbed:
+        final_power = power_summary(ps, sol.y, sol.v, extra_y, b9)
+        change = final_power - initial_power
+        print("\n=== ACTIVE POWER CHECK [MW] ===")
+        print("Quantity                  Before       At end       Change")
+        for label, a, b in zip(("Original loads", "Added B9 load", "Network losses"),
+                               initial_power, final_power):
+            print(f"{label:24s} {a:10.3f} {b:12.3f} {b-a:+12.3f}")
+        print(f"{'Mechanical power':24s} {pm[0]:10.3f} {pm[-1]:12.3f} {pm[-1]-pm[0]:+12.3f}")
+        required = np.sum(change)
+        remaining = pm[-1] - pm[0] - required
+        print(f"Net change in demand plus losses: {required:+.3f} MW")
+        print(f"Mechanical increase minus that change: {remaining:+.6f} MW")
+        print("Near equilibrium, this difference should be small for this model.")
+        print("During a transient, rotor energy also contributes to the balance.")
+        print("This comparison does not assume that the final state is fully settled.")
+    return t, frequency, coi, pm, voltage, gen.par["name"]
 
 
 def main():
@@ -106,7 +136,7 @@ def main():
     response = simulate(disturbed=True)
 
     fig, axes = plt.subplots(3, 1, sharex=True, figsize=(8, 7))
-    t, freq, coi, pm, v8, names = response
+    t, freq, coi, pm, voltage, names = response
     for i, name in enumerate(names):
         axes[0].plot(t, freq[:, i], lw=0.8, alpha=0.6, label=name)
     axes[0].plot(t, coi, color="black", lw=1.5, label="COI (inertia-weighted average)")
@@ -121,10 +151,12 @@ def main():
     axes[1].plot(baseline[0], baseline[3]-baseline[3][0], "--", label="No disturbance")
     axes[1].set_ylabel("Change in total\nmechanical power [MW]")
     axes[1].set_title("Combined turbine response of G1-G4")
-    axes[2].plot(t, v8, label="With B9 load step")
-    axes[2].plot(baseline[0], baseline[4], "--", label="No disturbance")
-    axes[2].set_ylabel("B8 voltage [pu]")
-    axes[2].set_title("Voltage at B8")
+    for i, bus in enumerate(("B8", "B9")):
+        axes[2].plot(t, voltage[:, i], color=f"C{i}", label=f"{bus} with load step")
+        axes[2].plot(baseline[0], baseline[4][:, i], "--", color=f"C{i}",
+                     alpha=0.6, label=f"{bus} without disturbance")
+    axes[2].set_ylabel("Voltage [pu]")
+    axes[2].set_title("B9 load-bus voltage and B8 corridor voltage")
     axes[2].set_xlabel("Time [s]")
     for ax in axes:
         ax.axvline(T_EVENT, color="gray", ls=":", label="B9 load added")
