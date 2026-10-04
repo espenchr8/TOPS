@@ -24,6 +24,29 @@ def power_summary(ps, x, v, extra_y, b9):
     return np.array([original, added, losses])
 
 
+def check_balance(ps, t, x, extra_y, b9):
+    """Check the network balance and TOPS GEN speed equation separately."""
+    v = ps.solve_algebraic(t, x)
+    dx = ps.state_derivatives(t, x, v)  # Refresh model outputs at this state.
+    gen = ps.gen["GEN"]
+    p = gen.par
+    base = p["S_n"] * p["N_par"]
+    speed = gen.speed(x, v)
+    pe = gen.p_e(x, v)  # pu on each generator's MVA base.
+    pm = gen.P_m(x, v) * p["PF_n"]  # Same base as pe.
+    demand = power_summary(ps, x, v, extra_y, b9)
+    electrical = np.sum(pe * base)
+    mechanical = np.sum(pm * base)
+
+    # Exact form used by TOPS GEN, expressed on the generator MVA base:
+    # 2 H d(speed)/dt = PF_n P_m/(1+speed) - p_e - PF_n D speed.
+    acceleration = 2 * p["H"] * gen.local_view(dx)["speed"]
+    damping = p["PF_n"] * p["D"] * speed
+    driving = pm / (1 + speed) - pe - damping
+    swing_error = np.max(abs((driving - acceleration) * base))
+    return demand, mechanical, electrical, electrical - np.sum(demand), swing_error
+
+
 def simulate(disturbed=False):
     """Start from the same power flow as the static base case."""
     data = model_data.load()
@@ -60,7 +83,8 @@ def simulate(disturbed=False):
         ps.state_derivatives, ps.solve_algebraic, 0, ps.x0, T_END, max_step=DT)
     times, speeds, mechanical, voltages = [], [], [], []
     extra_y = 0j
-    initial_power = power_summary(ps, sol.y, sol.v, extra_y, b9)
+    initial_check = check_balance(ps, sol.t, sol.y, extra_y, b9)
+    initial_power = initial_check[0]
     event_step = round(T_EVENT / DT)
     for step in range(round(T_END / DT) + 1):
         if disturbed and step == event_step:
@@ -110,21 +134,28 @@ def simulate(disturbed=False):
         print("Check the curves for a frequency dip and increased mechanical power.")
         print("Droop control can leave a frequency offset after the response settles.")
     if disturbed:
-        final_power = power_summary(ps, sol.y, sol.v, extra_y, b9)
-        change = final_power - initial_power
+        final_check = check_balance(ps, sol.t, sol.y, extra_y, b9)
+        final_power, final_pm, final_pe, network_error, swing_error = final_check
         print("\n=== ACTIVE POWER CHECK [MW] ===")
         print("Quantity                  Before       At end       Change")
-        for label, a, b in zip(("Original loads", "Added B9 load", "Network losses"),
-                               initial_power, final_power):
+        before = np.r_[initial_power, initial_check[1], initial_check[2]]
+        after = np.r_[final_power, final_pm, final_pe]
+        labels = ("Original loads", "Added B9 load", "Network losses",
+                  "Mechanical power", "Electrical generation")
+        for label, a, b in zip(labels, before, after):
             print(f"{label:24s} {a:10.3f} {b:12.3f} {b-a:+12.3f}")
-        print(f"{'Mechanical power':24s} {pm[0]:10.3f} {pm[-1]:12.3f} {pm[-1]-pm[0]:+12.3f}")
-        required = np.sum(change)
-        remaining = pm[-1] - pm[0] - required
-        print(f"Net change in demand plus losses: {required:+.3f} MW")
-        print(f"Mechanical increase minus that change: {remaining:+.6f} MW")
-        print("Near equilibrium, this difference should be small for this model.")
-        print("During a transient, rotor energy also contributes to the balance.")
-        print("This comparison does not assume that the final state is fully settled.")
+        print(f"Net change in demand plus losses: {np.sum(final_power-initial_power):+.3f} MW")
+        print("\nNetwork check: electrical generation = all loads + network losses")
+        print(f"Balance error before event: {initial_check[3]:+.3e} MW")
+        print(f"Balance error at end:       {network_error:+.3e} MW")
+        print("These errors should be close to zero, including during a transient.")
+        print("\nSwing equation check: turbine input, electrical output and rotor response")
+        print(f"Largest generator equation residual at end: {swing_error:.3e} MW equivalent")
+        print("This residual should be close to zero. It checks the model equation.")
+        print(f"Mechanical minus electrical power at end: {final_pm-final_pe:+.6f} MW")
+        print("That difference is not the network balance error.")
+        print("TOPS includes rotor speed in its mechanical-input term.")
+        print("A small equation residual alone does not verify time-step accuracy.")
     return t, frequency, coi, pm, voltage, gen.par["name"]
 
 
