@@ -6,6 +6,18 @@ import tops.dynamic as dps
 import tops.solvers as dps_sol
 from tops.ps_models import k2a_course as model_data
 
+import inspect
+import tops.dyn_models.gen as gen_model
+import tops.dyn_models.loads as load_model
+import tops.dyn_models.gov as gov_model
+
+print("\nTOPS files used")
+print("System model:", inspect.getfile(dps.PowerSystemModel))
+print("Generator:", gen_model.__file__)
+print("Loads:", load_model.__file__)
+print("Governor:", gov_model.__file__)
+print("Network data:", model_data.__file__)
+
 T_END = 60.0
 DT = 0.005
 T_EVENT = 5.0
@@ -53,7 +65,13 @@ def simulate(disturbed=False):
     ps = dps.PowerSystemModel(model=data)
     ps.perform_kron_reduction = False  # Keep all 11 bus voltages available.
     ps.pf_max_it = 30
-    ps.init_dyn_sim()  # Solve power flow, then initialize machines and controls.
+    ps.init_dyn_sim()  # Solve power flow and initialize dynamic models.
+
+    print("\nModels in this simulation")
+    for group in (ps.gen, ps.loads, ps.gov):
+        for name, model in group.items():
+            print(name, "->", inspect.getfile(type(model)))
+
     if not ps.power_flow_ready:
         raise RuntimeError("Initial power flow did not converge")
 

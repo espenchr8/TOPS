@@ -6,6 +6,18 @@ import numpy as np
 import tops.dynamic as dps
 from tops.ps_models import k2a_course as model_data
 
+import inspect
+import tops.dyn_models.gen as gen_model
+import tops.dyn_models.loads as load_model
+import tops.dyn_models.gov as gov_model
+
+print("\nTOPS files used")
+print("System model:", inspect.getfile(dps.PowerSystemModel))
+print("Generator:", gen_model.__file__)
+print("Loads:", load_model.__file__)
+print("Governor:", gov_model.__file__)
+print("Network data:", model_data.__file__)
+
 # Chosen limits for comparison, not documented operating limits.
 SHOW_DETAILS = False  # True prints all buses, lines and scan points.
 V_MIN = 0.95
