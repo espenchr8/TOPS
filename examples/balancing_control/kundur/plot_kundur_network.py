@@ -38,7 +38,8 @@ def main():
         offset = (parallel.index(line) - (len(parallel)-1)/2) * 0.42
         y = y1 + offset
         highlighted = line["name"] == OUTAGE_LINE
-        ax.plot([x1, x2], [y, y], color=color if highlighted else "black", lw=1.5)
+        ax.plot([x1, x1, x2, x2], [y1, y, y, y2],
+                color=color if highlighted else "black", lw=1.5)
         ax.text((x1+x2)/2, y + (0.12 if offset >= 0 else -0.12),
                 line["name"], ha="center", va="bottom" if offset >= 0 else "top",
                 fontsize=8, color=color if highlighted else "black")
@@ -53,12 +54,19 @@ def main():
 
     for bus in rows(data["buses"]):
         x, y = POSITION[bus["name"]]
-        ax.plot([x, x], [y-0.29, y+0.29], color="black", lw=3, zorder=3)
-        ax.text(x, y+0.34, bus["name"], ha="center", fontsize=9)
+        if bus["name"] in ("B1", "B2", "B3", "B4"):
+            ax.plot([x-0.23, x+0.23], [y, y], color="black", lw=3, zorder=3)
+            label_x, label_y, align = x-0.28, y+0.10, "right"
+        else:
+            ax.plot([x, x], [y-0.29, y+0.29], color="black", lw=3, zorder=3)
+            label_x, label_y, align = x, y+0.37, "center"
+        ax.text(label_x, label_y, bus["name"], ha=align, va="bottom",
+                fontsize=9, zorder=5,
+                bbox=dict(facecolor="white", edgecolor="none", pad=0.5))
 
     for gen in rows(data["generators"]["GEN"]):
         x, y = POSITION[gen["bus"]]
-        ax.plot([x, x], [y+0.29, y+0.57], color="black", lw=1.2)
+        ax.plot([x, x], [y, y+0.57], color="black", lw=1.2)
         ax.add_patch(Circle((x, y+0.74), 0.17, facecolor="white", edgecolor="black"))
         ax.text(x, y+0.74, "~", ha="center", va="center", fontsize=14)
         label = gen["name"] + (" (PF slack)" if gen["bus"] == data["slack_bus"] else "")
