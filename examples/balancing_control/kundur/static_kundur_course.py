@@ -6,6 +6,8 @@ import numpy as np
 import tops.dynamic as dps
 from tops.ps_models import k2a_course as model_data
 
+from pathlib import Path
+
 
 
 # Chosen limits for comparison, not documented operating limits.
@@ -119,6 +121,10 @@ def compare_cases(cases):
             ax.legend(fontsize=8, ncol=2)
         fig.suptitle(title)
         fig.tight_layout()
+
+        # Comment out fig.savefig(...) to disable PNG saving.
+        output_file = Path(__file__).resolve().parent / "static_cases.png"
+        fig.savefig(output_file, dpi=300, bbox_inches="tight", facecolor="white")
 
 def show_summary(cases):
     """One row per case keeps the changes and results together."""
@@ -265,6 +271,10 @@ def main():
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
+
+    # Comment out plt.gcf().savefig(...) to disable PNG saving.
+    output_file = Path(__file__).resolve().parent / "static_load_scan.png"
+    plt.gcf().savefig(output_file, dpi=300, bbox_inches="tight", facecolor="white")
     plt.show()
 
 

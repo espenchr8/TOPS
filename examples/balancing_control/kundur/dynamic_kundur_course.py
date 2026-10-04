@@ -6,6 +6,8 @@ import tops.dynamic as dps
 import tops.solvers as dps_sol
 from tops.ps_models import k2a_course as model_data
 
+from pathlib import Path
+
 
 
 T_END = 60.0
@@ -198,6 +200,10 @@ def main():
     fig.suptitle(f"Kundur RMS response: B9 load step at {T_EVENT:g} s\n"
                  f"{LOAD_STEP_MW:g} MW at pre-event voltage, voltage-dependent load")
     fig.tight_layout()
+
+    # Comment out fig.savefig(...) to disable PNG saving.
+    output_file = Path(__file__).resolve().parent / "dynamic_response.png"
+    fig.savefig(output_file, dpi=300, bbox_inches="tight", facecolor="white")
     plt.show()
 
 
