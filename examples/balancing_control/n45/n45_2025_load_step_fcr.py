@@ -292,6 +292,11 @@ def run_simulation():
         load_power_mw[:, load_idx] - initial_load_power_mw[load_idx]
     )
 
+    # Change in ALL loads, including the negative loads representing HVDC import.
+    total_load_change = np.sum(
+        load_power_mw - initial_load_power_mw[np.newaxis, :], axis=1
+    )
+
     aggregate_vsc_change = np.zeros_like(t)
     if vsc is not None:
         vsc_power_mw = np.asarray(vsc_power_values)
@@ -326,6 +331,10 @@ def run_simulation():
         "Mean total governor/FCR response in final 5 s:",
         f"{np.mean(total_fcr_response[final_window]):.2f} MW",
     )
+    print(
+        "Mean total load change in final 5 s:",
+        f"{np.mean(total_load_change[final_window]):.2f} MW",
+    )
 
     return {
         "time": t,
@@ -337,6 +346,7 @@ def run_simulation():
         "tgov1_response": tgov1_response,
         "total_fcr_response": total_fcr_response,
         "actual_load_increase": actual_load_increase,
+        "total_load_change": total_load_change,
         "aggregate_vsc_change": aggregate_vsc_change,
         "nadir": float(coi_frequency[nadir_idx]),
         "nadir_time": float(t[nadir_idx]),
@@ -403,12 +413,13 @@ def plot_results(results):
     # =========================================================================
 
     axes[3].plot(t, results["actual_load_increase"], label="Actual load increase")
+    axes[3].plot(t, results["total_load_change"], label="Total load change (all loads)")
     axes[3].plot(t, results["aggregate_vsc_change"], label="Aggregate VSC response")
     axes[3].axhline(LOAD_STEP_MW, color="gray", ls=":", label="Nominal load step")
     axes[3].axhline(0.0, color="gray", ls=":")
     axes[3].set_ylabel("Power change (MW)")
     axes[3].set_xlabel("Time (s)")
-    axes[3].legend(ncol=3)
+    axes[3].legend(ncol=2)
 
     # =========================================================================
     # FINAL FIGURE LAYOUT

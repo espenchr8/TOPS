@@ -16,6 +16,13 @@ if __name__ == '__main__':
     ps_lin.linearize()
     ps_lin.eigenvalue_decomposition()
 
+    eigs, damp, freq = ps_lin.eigs, ps_lin.damping, ps_lin.freq
+    osc = freq > 0.005
+    idx = np.where(osc)[0][np.argsort(damp[osc])][:10]
+    for i in idx:
+        print(f'{eigs[i].real:8.3f} {eigs[i].imag:8.3f}  f={freq[i]:.3f} Hz  zeta={100*damp[i]:.1f} %')
+    print('Re > 1e-6:', np.sum(eigs.real > 1e-6), '| tilnærmet null:', np.sum(abs(eigs) < 1e-6))
+
     # Plot eigenvalues
     dps_plt.plot_eigs(ps_lin.eigs)
 
