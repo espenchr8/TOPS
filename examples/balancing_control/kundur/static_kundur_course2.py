@@ -24,9 +24,9 @@ import tops.dynamic as dps
 from tops.ps_models import k2a_course as model_data
 
 
-# Chosen limits for comparison, not documented operating limits.
+# Chosen limits for comparison.
 SHOW_DETAILS = False  # True prints all buses and lines for each case.
-V_MIN = 0.95
+V_MIN = 0.90
 TRANSFER_CHANGE = 100.0  # MW shifted between areas, not extra total demand.
 LINE_LIMITS = dict(zip(
     ("L5-6", "L6-7", "L7-8-1", "L7-8-2", "L8-9-1", "L8-9-2", "L9-10", "L10-11"),
@@ -371,7 +371,7 @@ def main():
     data = model_data.load()  # Same data loading as the dynamic study.
     print("Kundur data from k2a_course.py.")
     print(f"System base {data['base_mva']} MVA. Slack bus {data['slack_bus']}.")
-    print(f"The {V_MIN} pu threshold and line limits are assumptions, not equipment data.")
+    print(f"The {V_MIN} pu threshold from sources and line limits are assumptions, not equipment data.")
 
     cases = []
     for title, removed, transfer in (
