@@ -13,7 +13,8 @@ from pathlib import Path
 T_END = 60.0
 DT = 0.005
 T_EVENT = 5.0
-LOAD_STEP_MW = 50.0  # Added active demand at the pre-event B9 voltage.
+LOAD_STEP_MW = 100.0  # Added active demand at the pre-event B9 voltage.
+# 100 MW matches k2a_loadstep in the master project (about 3.7 % of load).
 # The added load keeps B9's initial Q/P ratio and is a fixed admittance.
 # Its actual MW therefore changes when the voltage changes.
 
@@ -85,7 +86,8 @@ def simulate(disturbed=False):
     # It advances machine/control states and solves network voltages each step.
     sol = dps_sol.ModifiedEulerDAE(
         ps.state_derivatives, ps.solve_algebraic, 0, ps.x0, T_END, max_step=DT)
-    times, speeds, mechanical, voltages = [], [], [], []
+    times, speeds, mechanical, voltages, terminal = [], [], [], [], []
+    v_ref = np.asarray(gen.par["V"], dtype=float)  # AVR voltage setpoints
     extra_y = 0j
     initial_check = check_balance(ps, sol.t, sol.y, extra_y, b9)
     initial_power = initial_check[0]
@@ -108,6 +110,8 @@ def simulate(disturbed=False):
         speeds.append(gen.speed(sol.y, sol.v).copy())
         mechanical.append(np.sum(gen.P_m(sol.y, sol.v) * p_base))
         voltages.append(abs(sol.v[[b8, b9]]))
+        # AVR control objective: generator terminal voltage minus setpoint.
+        terminal.append(gen.v_t_abs(sol.y, sol.v) - v_ref)
         if step < round(T_END / DT):
             sol.step()
 
@@ -116,6 +120,7 @@ def simulate(disturbed=False):
     coi = np.average(frequency, axis=1, weights=weights)
     pm = np.asarray(mechanical)
     voltage = np.asarray(voltages)
+    vt_error = np.asarray(terminal)
     v8, v9 = voltage[:, 0], voltage[:, 1]
     tail = t >= T_END - 5
     print(f"Largest generator frequency deviation: "
@@ -131,6 +136,10 @@ def simulate(disturbed=False):
     print(f"Change in total mechanical power: {pm[-1]-pm[0]:+.3f} MW")
     print(f"B8 voltage: initial {v8[0]:.4f} pu, final {v8[-1]:.4f} pu")
     print(f"B9 voltage: initial {v9[0]:.4f} pu, final {v9[-1]:.4f} pu")
+    print("Generator terminal voltage minus AVR setpoint [pu]:")
+    for name, peak, end in zip(gen.par["name"], np.max(abs(vt_error), axis=0),
+                               vt_error[-1]):
+        print(f"  {name}: largest {peak:.4f}, final {end:+.5f}")
     if not disturbed:
         print(f"Largest B8 voltage drift: {max(abs(v8-v8[0])):.3e} pu")
         print("Frequency, voltage and mechanical power should stay almost constant.")
@@ -160,7 +169,7 @@ def simulate(disturbed=False):
         print("That difference is not the network balance error.")
         print("TOPS includes rotor speed in its mechanical-input term.")
         print("A small equation residual alone does not verify time-step accuracy.")
-    return t, frequency, coi, pm, voltage, gen.par["name"]
+    return t, frequency, coi, pm, voltage, gen.par["name"], vt_error
 
 
 def main():
@@ -171,27 +180,26 @@ def main():
     response = simulate(disturbed=True)
 
     fig, axes = plt.subplots(3, 1, sharex=True, figsize=(8, 7))
-    t, freq, coi, pm, voltage, names = response
+    t, freq, coi, pm, voltage, names, vt_error = response
     for i, name in enumerate(names):
         axes[0].plot(t, freq[:, i], lw=0.8, alpha=0.6, label=name)
     axes[0].plot(t, coi, color="black", lw=1.5, label="COI (inertia-weighted average)")
     axes[0].plot(baseline[0], baseline[2], "--", color="gray", label="No disturbance")
     axes[0].set_ylabel("Frequency [Hz]")
     axes[0].ticklabel_format(axis="y", useOffset=False)
-    nadir_idx = np.flatnonzero(t >= T_EVENT)[np.argmin(coi[t >= T_EVENT])]
-    axes[0].plot(t[nadir_idx], coi[nadir_idx], "rx", ms=7, mew=2,
-                 label=f"Run minimum: {coi[nadir_idx]:.4f} Hz at {t[nadir_idx]:.1f} s")
+    axes[0].plot(t[-1], coi[-1], "rx", ms=7, mew=2,
+                 label=f"Final value: {coi[-1]:.4f} Hz")
     axes[0].set_title("Generator frequencies and system average")
     axes[1].plot(t, pm-pm[0], label="With B9 load step")
     axes[1].plot(baseline[0], baseline[3]-baseline[3][0], "--", label="No disturbance")
     axes[1].set_ylabel("Change in total\nmechanical power [MW]")
     axes[1].set_title("Combined turbine response of G1-G4")
-    for i, bus in enumerate(("B8", "B9")):
-        axes[2].plot(t, voltage[:, i], color=f"C{i}", label=f"{bus} with load step")
-        axes[2].plot(baseline[0], baseline[4][:, i], "--", color=f"C{i}",
-                     alpha=0.6, label=f"{bus} without disturbance")
-    axes[2].set_ylabel("Voltage [pu]")
-    axes[2].set_title("B9 load-bus voltage and B8 corridor voltage")
+    # AVR control objective. B8/B9 voltages are printed in the terminal.
+    for i, name in enumerate(names):
+        axes[2].plot(t, vt_error[:, i], color=f"C{i}", label=name)
+    axes[2].axhline(0, color="gray", ls="--", lw=0.8, label="AVR setpoint")
+    axes[2].set_ylabel("$V_t - V_{ref}$ [pu]")
+    axes[2].set_title("AVR control objective: generator terminal voltage")
     axes[2].set_xlabel("Time [s]")
     for ax in axes:
         ax.axvline(T_EVENT, color="gray", ls=":", label="B9 load added")
