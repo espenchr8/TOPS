@@ -318,7 +318,7 @@ def show_nose_summary(results):
 def plot_static(cases, results):
     plt.rcParams.update({"font.size": 7})
     fig, (ax_a, ax_b) = plt.subplots(
-        1, 2, figsize=(7.16, 1.85), gridspec_kw={"width_ratios": [1.15, 1]})
+        1, 2, figsize=(7.16, 1.6), gridspec_kw={"width_ratios": [1.15, 1]})
 
     # (a) Line loading for base case, N-1 and redispatch
     group = [c for c in cases if c[0] != "Higher transfer"]
@@ -366,7 +366,7 @@ def plot_static(cases, results):
     fig.tight_layout(w_pad=1.0, pad=0.3)
     # Comment out fig.savefig(...) to disable PNG saving.
     output_file = Path(__file__).resolve().parent / "static_combined.png"
-    fig.savefig(output_file, dpi=300, bbox_inches="tight", facecolor="white")
+    fig.savefig(output_file, dpi=300, bbox_inches="tight",pad_inches=0.02, facecolor="white")
     print(f"\nFigure saved: {output_file.name}")
 
 
