@@ -316,9 +316,9 @@ def show_nose_summary(results):
 # =============================================================================
 
 def plot_static(cases, results):
-    plt.rcParams.update({"font.size": 8})
+    plt.rcParams.update({"font.size": 7})
     fig, (ax_a, ax_b) = plt.subplots(
-        1, 2, figsize=(7.16, 2.7), gridspec_kw={"width_ratios": [1.15, 1]})
+        1, 2, figsize=(7.16, 1.85), gridspec_kw={"width_ratios": [1.15, 1]})
 
     # (a) Line loading for base case, N-1 and redispatch
     group = [c for c in cases if c[0] != "Higher transfer"]
@@ -335,11 +335,12 @@ def plot_static(cases, results):
         ax_a.bar(positions + offset, values, width, color=COLORS[label],
                  label=short.get(label, label))
     ax_a.axhline(100, color="gray", ls="--", lw=0.8)
-    ax_a.set_xticks(positions, line_names, rotation=30)
-    ax_a.set_ylabel("Use of assumed MVA limit [%]")
-    ax_a.set_ylim(0, 128)
-    ax_a.set_title("(a) Line loading, base case and N-1")
-    ax_a.legend(fontsize=6.5, loc="upper center", ncol=3, framealpha=0.9)
+    ax_a.set_xticks(positions, line_names, rotation=0, fontsize=6)
+    ax_a.set_ylabel("Loading [%]")
+    ax_a.set_ylim(0, 115)
+    ax_a.set_title("(a)", loc="left", fontsize=7)
+    ax_a.legend(fontsize=6, loc="upper center", ncol=3, framealpha=0.9,
+                borderpad=0.3, handlelength=1.2)
     ax_a.grid(True, axis="y", alpha=0.3)
 
     # (b) Nose curves, same colours as (a): blue intact, green N-1
@@ -356,11 +357,13 @@ def plot_static(cases, results):
     ax_b.axhline(V_MIN, color="gray", ls="--", lw=0.8)
     ax_b.set_xlabel("Transfer B7 → B8 [MW]")
     ax_b.set_ylabel("B8 voltage [pu]")
-    ax_b.set_title("(b) Nose curves, area 1 → area 2")
-    ax_b.legend(fontsize=6.5, loc="lower center", bbox_to_anchor=(0.6, 0.0))
+    ax_b.set_title("(b)", loc="left", fontsize=7)
+    ax_b.set_ylim(0.6, None)  # room for the legend below the curves
+    ax_b.legend(fontsize=6, loc="lower left", ncol=2, borderpad=0.3,
+                handlelength=1.8)
     ax_b.grid(True, alpha=0.3)
 
-    fig.tight_layout(w_pad=1.5)
+    fig.tight_layout(w_pad=1.0, pad=0.3)
     # Comment out fig.savefig(...) to disable PNG saving.
     output_file = Path(__file__).resolve().parent / "static_combined.png"
     fig.savefig(output_file, dpi=300, bbox_inches="tight", facecolor="white")
