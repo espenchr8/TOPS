@@ -220,8 +220,8 @@ def main():
         ax.axvline(T_EVENT, color="gray", ls=":", label="B9 load added")
         ax.grid(True)
         ax.legend(fontsize=8, ncol=3)
-    fig.suptitle(f"Kundur RMS response: B9 load step at {T_EVENT:g} s\n"
-                 f"{LOAD_STEP_MW:g} MW at pre-event voltage, voltage-dependent load")
+    #fig.suptitle(f"Kundur RMS response: B9 load step at {T_EVENT:g} s\n"
+                 #f"{LOAD_STEP_MW:g} MW at pre-event voltage, voltage-dependent load")
     fig.tight_layout()
 
     # Comment out fig.savefig(...) to disable PNG saving.
