@@ -226,7 +226,7 @@ def main():
 
     # Comment out fig.savefig(...) to disable PNG saving.
     output_file = Path(__file__).resolve().parent / "dynamic_response.png"
-    fig.savefig(output_file, dpi=300, bbox_inches="tight", facecolor="white")
+    fig.savefig(output_file, dpi=300, bbox_inches="tight", pad_inches=0.02, facecolor="white")
     plt.show()
 
 
