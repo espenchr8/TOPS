@@ -82,6 +82,16 @@ def simulate(disturbed=False):
     print(f"RMS voltage versus power-flow voltage: "
           f"{max(abs(v0 - ps.v_0)):.3e} pu difference")
 
+    # Check: per-generator turbine response and corridor transfer B7->B8.
+    line_names = list(ps.lines["Line"].par["name"])
+
+    def tie_flow(x, v):
+        sf = ps.lines["Line"].s_from(x, v) * ps.s_n
+        return sum(sf[line_names.index(n)].real for n in ("L7-8-1", "L7-8-2"))
+
+    pm_gen0 = gen.P_m(ps.x0, v0) * p_base
+    tie0 = tie_flow(ps.x0, v0)
+
     # Same solver as the master-project baseline.
     # It advances machine/control states and solves network voltages each step.
     sol = dps_sol.ModifiedEulerDAE(
@@ -134,6 +144,11 @@ def simulate(disturbed=False):
     print(f"Final COI frequency: {coi[-1]:.6f} Hz")
     print(f"COI frequency range in the last 5 s: {np.ptp(coi[tail]):.6e} Hz")
     print(f"Change in total mechanical power: {pm[-1]-pm[0]:+.3f} MW")
+    dpm = gen.P_m(sol.y, sol.v) * p_base - pm_gen0
+    for name, d in zip(gen.par["name"], dpm):
+        print(f"  {name}: mechanical power change {d:+.2f} MW")
+    print(f"Corridor transfer B7->B8: {tie0:.1f} MW -> "
+          f"{tie_flow(sol.y, sol.v):.1f} MW")
     print(f"B8 voltage: initial {v8[0]:.4f} pu, final {v8[-1]:.4f} pu")
     print(f"B9 voltage: initial {v9[0]:.4f} pu, final {v9[-1]:.4f} pu")
     print("Generator terminal voltage minus AVR setpoint [pu]:")
