@@ -194,7 +194,7 @@ def main():
     baseline = simulate()
     response = simulate(disturbed=True)
 
-    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(8, 7))
+    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(8, 5))
     t, freq, coi, pm, voltage, names, vt_error = response
     for i, name in enumerate(names):
         axes[0].plot(t, freq[:, i], lw=0.8, alpha=0.6, label=name)
