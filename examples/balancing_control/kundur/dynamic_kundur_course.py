@@ -194,38 +194,33 @@ def main():
     baseline = simulate()
     response = simulate(disturbed=True)
 
-    plt.rcParams.update({"font.size": 7})
-    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(3.5, 2.5))
+    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(8, 4.2))
     t, freq, coi, pm, voltage, names, vt_error = response
-    # (a) Frequency: generators (thin), COI (black), undisturbed run (dashed)
     for i, name in enumerate(names):
-        axes[0].plot(t, freq[:, i], lw=0.5, alpha=0.6, color=f"C{i}",
-                     label="G1-G4" if i == 0 else None)
-    axes[0].plot(t, coi, color="black", lw=1.0, label="COI")
-    axes[0].plot(baseline[0], baseline[2], "--", color="gray", lw=0.8,
-                 label="No disturbance")
-    axes[0].set_ylabel("$f$ [Hz]")
+        axes[0].plot(t, freq[:, i], lw=0.8, alpha=0.6, label=name)
+    axes[0].plot(t, coi, color="black", lw=1.5, label="COI (inertia-weighted average)")
+    axes[0].plot(baseline[0], baseline[2], "--", color="gray", label="No disturbance")
+    axes[0].set_ylabel("Frequency [Hz]")
     axes[0].ticklabel_format(axis="y", useOffset=False)
-    axes[0].legend(fontsize=6, ncol=3, loc="upper right", handlelength=1.2,
-                   borderpad=0.2, columnspacing=0.8)
-    # (b) Total change in turbine power
-    axes[1].plot(t, pm-pm[0], color="black", lw=1.0)
-    axes[1].plot(baseline[0], baseline[3]-baseline[3][0], "--", color="gray", lw=0.8)
+    axes[0].plot(t[-1], coi[-1], "rx", ms=7, mew=2,
+                 label=f"Final value: {coi[-1]:.4f} Hz")
+    axes[0].set_title("Generator frequencies and system average")
+    axes[1].plot(t, pm-pm[0], label="With B9 load step")
+    axes[1].plot(baseline[0], baseline[3]-baseline[3][0], "--", label="No disturbance")
     axes[1].set_ylabel("$\\Delta P_m$ [MW]")
-    # (c) AVR control objective in percent
+    axes[1].set_title("Combined turbine response of G1-G4")
+    # AVR control objective. B8/B9 voltages are printed in the terminal.
     for i, name in enumerate(names):
-        axes[2].plot(t, 100*vt_error[:, i], color=f"C{i}", lw=0.7, label=name)
-    axes[2].set_ylabel("$V_t-V_{ref}$ [%]")
+        axes[2].plot(t, 100*vt_error[:, i], color=f"C{i}", label=name)
+    axes[2].axhline(0, color="gray", ls="--", lw=0.8, label="AVR setpoint")
+    axes[2].set_ylabel("$V_t - V_{ref}$ [%]")
+    axes[2].set_title("AVR control objective: generator terminal voltage")
     axes[2].set_xlabel("Time [s]")
-    axes[2].legend(fontsize=6, ncol=4, loc="lower right", handlelength=1.2,
-                   borderpad=0.2, columnspacing=0.8)
-    for ax, letter in zip(axes, "abc"):
-        ax.axvline(T_EVENT, color="gray", ls=":", lw=0.8)
-        ax.grid(True, alpha=0.3)
-        ax.text(0.01, 0.93, f"({letter})", transform=ax.transAxes,
-                va="top", fontsize=7)
-    axes[2].set_xlim(0, T_END)
-    fig.tight_layout(pad=0.2, h_pad=0.3)
+    for ax in axes:
+        ax.axvline(T_EVENT, color="gray", ls=":", label="B9 load added")
+        ax.grid(True)
+        ax.legend(fontsize=8, ncol=3)
+    fig.tight_layout()
 
     # Comment out fig.savefig(...) to disable PNG saving.
     output_file = Path(__file__).resolve().parent / "dynamic_response.png"
