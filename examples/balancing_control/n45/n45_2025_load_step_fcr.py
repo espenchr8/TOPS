@@ -15,7 +15,7 @@ from tops.ps_models import n45_2025 as model_data
 
 EVENT_TIME = 1.0
 LOAD_NAME = "L5240-1"
-LOAD_STEP_MW = 100.0
+LOAD_STEP_MW = 1000.0
 LOAD_STEP_MVAR = 0.0
 T_END = 60.0
 MAX_STEP = 5e-3
