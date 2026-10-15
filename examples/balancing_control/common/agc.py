@@ -160,12 +160,16 @@ def connect_hygov(agc, ps, participation):
 def connect_hvdc(agc, ps, participation):
     """Add the AGC command to the active-power reference of VSC units.
 
-    p_ref = p_ref_0 + alpha * dP_AGC / S_n   (positive = more import)
+    p_ref = p_ref_set + alpha * dP_AGC / S_n   (positive = more import)
+
+    p_ref_set is the scheduled set-point stored in the VSC input values.
+    It is read at every call, so a scheduled change (e.g. a reduced HVDC
+    import used as a disturbance) can still be applied with
+    vsc.set_input("p_ref", value, idx=i).
     """
     vsc = ps.vsc["VSC_SI"]
     names = np.asarray(vsc.par["name"], dtype=str)
     alpha = np.array([participation.get(name, 0.0) for name in names])
     S_n = vsc.par["S_n"]
-    p_ref_0 = vsc._input_values["p_ref"].copy()
 
-    vsc.p_ref = lambda x, v: p_ref_0 + alpha * agc.output(x, v) / S_n
+    vsc.p_ref = lambda x, v: vsc._input_values["p_ref"] + alpha * agc.output(x, v) / S_n
