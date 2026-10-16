@@ -17,12 +17,13 @@ power system and included in the linearization / modal analysis.
 Usage in a simulation file:
 
     model = model_data.load()
+    B = sum(regulating_strength_mw_per_hz(model).values())
     add_agc_to_model(model, T_f=2.0, K_p=0.0, K_i=B / T_i)
     ps = dps.PowerSystemModel(model=model, user_mdl_lib=user_model_library())
     ps.init_dyn_sim()
     agc = ps.agc["AGC"]
-    connect_coi_frequency(agc, ps)
-    connect_tgov1(agc, ps, {"G1": 0.5, "G2": 0.5})
+    connect_agc(agc, ps, hydro_units=None, thermal_units=[],
+                hvdc_share=0.0, hvdc_link_split={"NO_2-GB": 1.0})
 """
 
 import types
@@ -173,3 +174,71 @@ def connect_hvdc(agc, ps, participation):
     S_n = vsc.par["S_n"]
 
     vsc.p_ref = lambda x, v: vsc._input_values["p_ref"] + alpha * agc.output(x, v) / S_n
+
+
+# =============================================================================
+# REGULATING STRENGTH AND COMPLETE CONNECTION
+# =============================================================================
+
+def regulating_strength_mw_per_hz(model):
+    """Droop contribution P_n / (R f0) summed per governor type (MW/Hz).
+
+    Only governors contribute. Wind and HVDC (VSC) have no droop, and the
+    loads have no frequency dependence, so they do not add to the result.
+    """
+    f0 = float(model["f"])
+    gen_table = model["generators"]["GEN"]
+    header = list(gen_table[0])
+    gen_rating = {
+        row[header.index("name")]: float(row[header.index("S_n")])
+        for row in gen_table[1:]
+    }
+
+    strength = {}
+    for gov_type, table in model["gov"].items():
+        gov_header = list(table[0])
+        strength[gov_type] = sum(
+            gen_rating[row[gov_header.index("gen")]]
+            / (float(row[gov_header.index("R")]) * f0)
+            for row in table[1:]
+        )
+    return strength
+
+
+def connect_agc(agc, ps, hydro_units=None, thermal_units=(),
+                hvdc_share=0.0, hvdc_link_split=None):
+    """Connect measurement and all set-points in one call.
+
+    hydro_units:     generator names with HYGOV in the AGC (None = all HYGOV)
+    thermal_units:   generator names with TGOV1 in the AGC (empty = none)
+    hvdc_share:      share of the AGC command sent to HVDC (0 to 1)
+    hvdc_link_split: split of the HVDC share between links, sum = 1
+
+    The generator share (1 - hvdc_share) is split between the listed
+    generators in proportion to their rating. Returns the participation
+    factors so they can be printed or checked.
+    """
+    gen = ps.gen["GEN"]
+    gen_rating = dict(zip(
+        np.asarray(gen.par["name"], dtype=str),
+        gen.par["S_n"] * gen.par["N_par"],
+    ))
+
+    if hydro_units is None:
+        hydro_units = list(np.asarray(ps.gov["HYGOV"].par["gen"], dtype=str))
+    units = list(hydro_units) + list(thermal_units)
+    total_rating = sum(gen_rating[g] for g in units)
+
+    participation_gen = {
+        g: (1.0 - hvdc_share) * gen_rating[g] / total_rating for g in units
+    }
+    participation_hvdc = {
+        link: hvdc_share * split for link, split in (hvdc_link_split or {}).items()
+    }
+
+    connect_coi_frequency(agc, ps)
+    connect_hygov(agc, ps, participation_gen)
+    connect_tgov1(agc, ps, participation_gen)
+    connect_hvdc(agc, ps, participation_hvdc)
+
+    return participation_gen, participation_hvdc
