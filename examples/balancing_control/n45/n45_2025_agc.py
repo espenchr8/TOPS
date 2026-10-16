@@ -73,6 +73,10 @@ THERMAL_AGC_UNITS = []          # e.g. ["G3000-1"]; empty = no thermal units
 HVDC_SHARE = 0.0                # Share of the AGC command sent via HVDC
 HVDC_LINK_SPLIT = {"NO_2-GB": 1.0}
 
+# Plots: reserve overview (Statnett style) and/or the detailed 5-panel figure
+SHOW_RESERVE_OVERVIEW = True
+SHOW_DETAILED_PLOT = True
+
 
 def run_simulation():
 
@@ -581,9 +585,113 @@ def plot_results(results):
     plt.show()
 
 
+def plot_reserve_overview(results):
+    """Overview in the style of Statnett's reserve figure.
+
+    Top:    power per reserve type (FCR and aFRR), MW.
+    Bottom: system frequency with the 49.9 Hz normal-band limit.
+
+    FCR is not measured directly. It is estimated as the total governor
+    response minus the aFRR set-point sent to the generators. FFR and mFRR
+    are not modelled and are therefore not shown.
+    """
+
+    # =========================================================================
+    # FIGURE SETUP
+    # =========================================================================
+
+    t = results["time"]
+    f_n = results["nominal_frequency"]
+
+    fcr = results["total_fcr_response"] - results["afrr_to_generators"]
+    total_response = results["total_fcr_response"] + results["afrr_to_hvdc"]
+
+    fig, (ax_p, ax_f) = plt.subplots(
+        2, 1, sharex=True, figsize=(12, 8), gridspec_kw={"hspace": 0.12}
+    )
+    fig.suptitle(
+        "Reserve activation after a disturbance – Nordic 45 (2025)\n"
+        f"{results['event_text']}, T_i = {T_I:.0f} s, HVDC share = {HVDC_SHARE:.0%}"
+    )
+
+    # =========================================================================
+    # POWER PER RESERVE TYPE
+    # =========================================================================
+
+    ax_p.plot(t, fcr, color="tab:blue", lw=2.5, label="FCR (governor droop)")
+    ax_p.plot(
+        t, results["agc_command"], color="tab:green", lw=2.5,
+        label="aFRR (AGC)",
+    )
+    if HVDC_SHARE > 0:
+        ax_p.plot(
+            t, results["afrr_to_hvdc"], color="tab:purple", lw=1.5, ls="--",
+            label="  of which via HVDC",
+        )
+    ax_p.plot(t, total_response, color="black", lw=1.0, label="Total response")
+    ax_p.axhline(
+        results["nominal_disturbance_mw"], color="gray", ls="--", lw=1,
+        label="Disturbance",
+    )
+    ax_p.axhline(0.0, color="gray", lw=0.8)
+    ax_p.set_ylabel("Power (MW)")
+    ax_p.legend(loc="center right")
+
+    # =========================================================================
+    # SYSTEM FREQUENCY
+    # =========================================================================
+
+    ax_f.plot(t, results["coi_frequency"], color="tab:orange", lw=2.5, label="System frequency (COI)")
+    ax_f.axhline(f_n, color="black", lw=1)
+    ax_f.axhline(f_n - 0.1, color="gray", ls="--", lw=1)
+    ax_f.text(t[-1], f_n - 0.1, " 49.9 Hz", va="center", ha="left", color="gray")
+    ax_f.plot(
+        results["nadir_time"], results["nadir"], "ko",
+        label=f"Nadir {results['nadir']:.3f} Hz",
+    )
+    ax_f.set_ylabel("Frequency (Hz)")
+    ax_f.set_xlabel("Time (s)")
+    ax_f.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
+    ax_f.legend(loc="lower right")
+
+    # =========================================================================
+    # PHASE MARKERS (30 s, 2 min, 15 min after the event)
+    # =========================================================================
+
+    for delay, label in ((30.0, "30 s"), (120.0, "2 min"), (900.0, "15 min")):
+        t_mark = EVENT_TIME + delay
+        if t_mark < t[-1]:
+            for ax in (ax_p, ax_f):
+                ax.axvline(t_mark, color="tab:red", ls="--", lw=1)
+            ax_p.text(t_mark, 1.02, label, transform=ax_p.get_xaxis_transform(),
+                      ha="center", va="bottom", color="tab:red")
+
+    phase_labels = [("FCR", EVENT_TIME, EVENT_TIME + 120.0, "tab:blue"),
+                    ("aFRR", EVENT_TIME + 120.0, min(EVENT_TIME + 900.0, t[-1]), "tab:green")]
+    for text, start, end, color in phase_labels:
+        if start < t[-1]:
+            ax_f.text((start + end) / 2, 0.04, text, transform=ax_f.get_xaxis_transform(),
+                      ha="center", va="bottom", color="white", fontweight="bold",
+                      bbox=dict(boxstyle="square,pad=0.3", fc=color, ec="none"))
+
+    for ax in (ax_p, ax_f):
+        ax.axvline(EVENT_TIME, color="black", ls=":", lw=1)
+        ax.set_xlim(0.0, t[-1])
+        ax.grid(True, alpha=0.4)
+
+    fig.align_ylabels((ax_p, ax_f))
+    fig.subplots_adjust(left=0.08, right=0.93, top=0.88, bottom=0.08)
+
+
 # =============================================================================
 # RUN SCRIPT
 # =============================================================================
 
 if __name__ == "__main__":
-    plot_results(run_simulation())
+    results = run_simulation()
+    if SHOW_RESERVE_OVERVIEW:
+        plot_reserve_overview(results)
+    if SHOW_DETAILED_PLOT:
+        plot_results(results)
+    else:
+        plt.show()
