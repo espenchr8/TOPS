@@ -66,7 +66,7 @@ RESTORATION_BAND_HZ = 0.01
 
 AGC_ENABLED = True
 T_F = 2.0                       # Low-pass filter time constant (s)
-T_I = 180.0                      # Integral time (s); K_i = B / T_i
+T_I = 100.0                     # Integral time (s); K_i = B / T_i
 K_P = 0.0                       # Proportional gain (MW/Hz); 0 = pure integral
 HYDRO_AGC_UNITS = None          # None = all HYGOV units
 THERMAL_AGC_UNITS = []          # e.g. ["G3000-1"]; empty = no thermal units
