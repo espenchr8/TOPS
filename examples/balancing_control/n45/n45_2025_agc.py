@@ -50,7 +50,7 @@ DISTURBANCE = "load_step"
 
 LOAD_NAME = "L5240-1"           # load_step
 LOAD_STEP_MW = 1000.0
-LOAD_STEP_MVAR = 0.0
+
 
 HVDC_EVENT_LINK = "NO_2-DE"     # hvdc_reduction
 HVDC_EVENT_NEW_MW = 0.0
@@ -156,11 +156,9 @@ def run_simulation():
         load_bus_idx = int(load.bus_idx_red["terminal"][load_idx])
         initial_load_mw = float(load.p(ps.x0, v_initial)[load_idx]) * system_base_mva
 
-        # The load model is constant impedance. Define the requested P/Q step at
-        # the pre-event voltage and convert it to an admittance increment:
-        # S = |V|^2 * conj(Y), hence delta_Y = conj(delta_S) / |V_0|^2.
-        delta_s_pu = (LOAD_STEP_MW + 1j * LOAD_STEP_MVAR) / system_base_mva
-        delta_y = np.conj(delta_s_pu) / abs(v_initial[load_bus_idx]) ** 2
+        # The load model is constant impedance. The requested P step at the
+        # pre-event voltage gives the admittance step delta_Y = delta_P / |V_0|^2.
+        delta_y = (LOAD_STEP_MW / system_base_mva) / abs(v_initial[load_bus_idx]) ** 2
 
         nominal_disturbance_mw = LOAD_STEP_MW
         event_text = f"+{LOAD_STEP_MW:.0f} MW load step at {LOAD_NAME}"
