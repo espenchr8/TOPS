@@ -46,7 +46,7 @@ FINAL_AVERAGING_WINDOW_S = 5.0
 RESTORATION_BAND_HZ = 0.01  #Frekvensen regnes som tilbake når den holder seg innenfor ±10 mHz av 50 Hz.
 
 # Disturbance: "load_step" or "hvdc_reduction"
-DISTURBANCE = "load_step"
+DISTURBANCE = "load_step"  #Forstyrrelsen er en reduksjon i HVDC-importen på NO_2-DE fra 900 MW til 0 MW.
 
 LOAD_NAME = "L5240-1"           # load_step
 LOAD_STEP_MW = 1000.0
@@ -69,13 +69,13 @@ SHOW_DETAILED_PLOT = True
 # AGC SETTINGS
 # =============================================================================
 
-AGC_ENABLED = False
+AGC_ENABLED = True
 T_F = 2.0                       # Low-pass filter time constant (s)
 T_I = 100.0                     # Integral time (s); K_i = B / T_i
 K_P = 0.0                       # Proportional gain (MW/Hz); 0 = pure integral
 HYDRO_AGC_UNITS = None          # None = all HYGOV units
 THERMAL_AGC_UNITS = []          # e.g. ["G3000-1"]; empty = no thermal units
-HVDC_SHARE = 0.0                # Share of the AGC command sent via HVDC
+HVDC_SHARE = 0.0               # Share of the AGC command sent via HVDC
 HVDC_LINK_SPLIT = {"NO_2-GB": 1.0}
 
 
