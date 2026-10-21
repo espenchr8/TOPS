@@ -53,12 +53,12 @@ if __name__ == '__main__':
             hvdc_share=sim.HVDC_SHARE,
             hvdc_link_split=sim.HVDC_LINK_SPLIT,
         )
-        print(f"\nCase: {sim.AGC_TEXT}, K_i = {K_I:.1f} MW/(Hz s)")
+        print(f"\nCase: T_i = {sim.T_I:.0f} s, HVDC share = {sim.HVDC_SHARE:.0%}, K_i = {K_I:.1f} MW/(Hz s)")
     else:
         # AGC off: plain N45 model, exactly as in the TOPS example
         ps = dps.PowerSystemModel(model=model)
         ps.init_dyn_sim()
-        print(f"\nCase: {sim.AGC_TEXT}")
+        print("\nCase: AGC off (FCR only)")
 
     # =========================================================================
     # LINEARIZATION AND EIGENVALUES (TOPS)
