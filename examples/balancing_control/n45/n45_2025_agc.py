@@ -55,6 +55,16 @@ LOAD_STEP_MW = 1000.0
 HVDC_EVENT_LINK = "NO_2-DE"     # hvdc_reduction
 HVDC_EVENT_NEW_MW = 0.0
 
+REGION_AREA_CODES = {
+    "Norway": {11, 12, 13, 14, 15},
+    "Sweden": {21, 22, 23, 24},
+    "Finland": {31},
+}
+
+# Plots: reserve overview (Statnett style) and/or the detailed 5-panel figure
+SHOW_RESERVE_OVERVIEW = True
+SHOW_DETAILED_PLOT = True
+
 
 # =============================================================================
 # AGC SETTINGS
@@ -140,6 +150,22 @@ def run_simulation():
     inertia_weights = np.asarray(gen.par["H"], dtype=float) * rating_mva
     mechanical_base_mw = rating_mva * np.asarray(gen.par["PF_n"], dtype=float)
 
+    # Detailed plot: generators behind each governor type, and per region.
+    gen_index = {name: i for i, name in enumerate(np.asarray(gen.par["name"], dtype=str))}
+    hygov_indices = np.asarray([gen_index[str(g)] for g in ps.gov["HYGOV"].par["gen"]], dtype=int)
+    tgov1_indices = np.asarray([gen_index[str(g)] for g in ps.gov["TGOV1"].par["gen"]], dtype=int)
+
+    bus_header = list(model["buses"][0])
+    bus_area = {
+        str(row[bus_header.index("name")]): int(row[bus_header.index("Area")])
+        for row in model["buses"][1:]
+    }
+    gen_area = np.asarray([bus_area[str(b)] for b in gen.par["bus"]], dtype=int)
+    region_indices = {
+        region: np.where(np.isin(gen_area, list(codes)))[0]
+        for region, codes in REGION_AREA_CODES.items()
+    }
+
     vsc_names = np.asarray(vsc.par["name"], dtype=str)
     vsc_s_n = np.asarray(vsc.par["S_n"], dtype=float)
     hvdc_idx = np.where(~np.char.startswith(vsc_names, "WG"))[0]
@@ -196,8 +222,12 @@ def run_simulation():
         governor_values.append(np.asarray(gen.P_m(x, v), dtype=float).copy())
         hvdc_values.append(np.asarray(vsc.p_e(x, v), dtype=float)[hvdc_idx] * vsc_s_n[hvdc_idx])
         agc_values.append(float(agc.output(x, v)[0]))
+        # Detailed plot: all loads and all VSC units (wind and HVDC), MW.
+        load_values.append(np.asarray(load.p(x, v), dtype=float) * system_base_mva)
+        vsc_values.append(np.asarray(vsc.p_e(x, v), dtype=float) * vsc_s_n)
 
     time_values, speed_values, governor_values, hvdc_values, agc_values = [], [], [], [], []
+    load_values, vsc_values = [], []
     store(ps.x0, v_initial)
 
     # =========================================================================
@@ -261,6 +291,27 @@ def run_simulation():
     afrr_to_hvdc = HVDC_SHARE * agc_command
     hvdc_change = hvdc_power_mw - hvdc_power_mw[0]
 
+    # Detailed plot: regional frequencies, RoCoF, governor types, loads, VSC.
+    regional_frequency = {
+        region: nominal_frequency * (1.0 + np.average(speed[:, idx], axis=1, weights=inertia_weights[idx]))
+        for region, idx in region_indices.items()
+    }
+    samples_100ms = max(1, int(round(0.1 / MAX_STEP)))
+    rocof = np.convolve(np.gradient(coi_frequency, t), np.ones(samples_100ms) / samples_100ms, mode="same")
+
+    governor_response_mw = (governor_p_m - governor_p_m[0]) * mechanical_base_mw
+    hygov_response = np.sum(governor_response_mw[:, hygov_indices], axis=1)
+    tgov1_response = np.sum(governor_response_mw[:, tgov1_indices], axis=1)
+
+    load_power_mw = np.asarray(load_values)
+    total_load_change = np.sum(load_power_mw - load_power_mw[0], axis=1)
+    actual_load_increase = (
+        load_power_mw[:, load_idx] - load_power_mw[0, load_idx]
+        if DISTURBANCE == "load_step" else np.zeros_like(t)
+    )
+    vsc_power_mw = np.asarray(vsc_values)
+    aggregate_vsc_change = np.sum(vsc_power_mw - vsc_power_mw[0], axis=1)
+
     # =========================================================================
     # RESPONSE METRICS AND TERMINAL SUMMARY
     # =========================================================================
@@ -312,7 +363,83 @@ def run_simulation():
         "afrr_to_hvdc": afrr_to_hvdc,
         "event_text": event_text,
         "nominal_disturbance_mw": nominal_disturbance_mw,
+        # Detailed plot
+        "regional_frequency": regional_frequency,
+        "rocof": rocof,
+        "hygov_response": hygov_response,
+        "tgov1_response": tgov1_response,
+        "actual_load_increase": actual_load_increase,
+        "total_load_change": total_load_change,
+        "aggregate_vsc_change": aggregate_vsc_change,
+        "hvdc_change": hvdc_change,
+        "hvdc_names": vsc_names[hvdc_idx],
     }
+
+
+def plot_results(results):
+    """Detailed 5-panel figure: frequencies, RoCoF, governors, loads/VSC, AGC/HVDC."""
+
+    t = results["time"]
+    fig, axes = plt.subplots(5, 1, sharex=True, figsize=(13, 15))
+    fig.suptitle(
+        "Nordic 45 (2025) – FCR and frequency-based AGC (aFRR)\n"
+        f"{results['event_text']}, t = {EVENT_TIME:.1f} s, "
+        f"T_i = {T_I:.0f} s, HVDC share = {HVDC_SHARE:.0%}",
+        y=0.985,
+    )
+
+    # System and regional frequencies
+    axes[0].plot(t, results["coi_frequency"], "k", lw=2, label="System COI")
+    for region, frequency in results["regional_frequency"].items():
+        axes[0].plot(t, frequency, lw=1.2, label=region)
+    axes[0].axhline(results["nominal_frequency"], color="gray", ls=":", label="Nominal")
+    axes[0].plot(results["nadir_time"], results["nadir"], "ko", label=f"Nadir {results['nadir']:.3f} Hz")
+    axes[0].set_ylabel("Frequency (Hz)")
+    axes[0].yaxis.set_major_formatter(FormatStrFormatter("%.3f"))
+    axes[0].legend(ncol=3)
+
+    # Rate of change of frequency
+    axes[1].plot(t, results["rocof"], color="tab:purple", label="COI RoCoF (100 ms mean)")
+    axes[1].axhline(0.0, color="gray", ls=":")
+    axes[1].set_ylabel("RoCoF (Hz/s)")
+    axes[1].legend()
+
+    # Governor response (FCR + aFRR)
+    axes[2].plot(t, results["hygov_response"], label="HYGOV (hydro)")
+    axes[2].plot(t, results["tgov1_response"], label="TGOV1 (thermal)")
+    axes[2].plot(t, results["total_governor_response"], "k", lw=2, label="Total governor (FCR + aFRR)")
+    axes[2].plot(t, results["afrr_to_generators"], color="tab:green", ls="--", label="aFRR set-point (AGC)")
+    axes[2].axhline(results["nominal_disturbance_mw"], color="gray", ls=":", label="Nominal disturbance")
+    axes[2].set_ylabel("Power response (MW)")
+    axes[2].legend(ncol=2)
+
+    # Load and VSC power changes
+    axes[3].plot(t, results["actual_load_increase"], label="Actual load increase")
+    axes[3].plot(t, results["total_load_change"], label="Total load change (all loads)")
+    axes[3].plot(t, results["aggregate_vsc_change"], label="Aggregate VSC response")
+    axes[3].axhline(results["nominal_disturbance_mw"], color="gray", ls=":", label="Nominal disturbance")
+    axes[3].axhline(0.0, color="gray", ls=":")
+    axes[3].set_ylabel("Power change (MW)")
+    axes[3].legend(ncol=2)
+
+    # AGC command and HVDC power
+    axes[4].plot(t, results["agc_command"], "k", lw=2, label="Total AGC command")
+    axes[4].plot(t, results["afrr_to_generators"], color="tab:green", ls="--", label="AGC to generators")
+    axes[4].plot(t, results["afrr_to_hvdc"], color="tab:red", ls="--", label="AGC to HVDC")
+    for k, name in enumerate(results["hvdc_names"]):
+        axes[4].plot(t, results["hvdc_change"][:, k], lw=1.2, label=f"HVDC {name} (actual)")
+    axes[4].axhline(0.0, color="gray", ls=":")
+    axes[4].set_ylabel("Power (MW)")
+    axes[4].set_xlabel("Time (s)")
+    axes[4].legend(ncol=4)
+
+    for ax in axes:
+        ax.axvline(EVENT_TIME, color="black", ls="--", lw=1)
+        ax.set_xlim(0.0, T_END)
+        ax.grid(True)
+
+    fig.subplots_adjust(left=0.09, right=0.985, bottom=0.065, top=0.91, hspace=0.30)
+    fig.align_ylabels(axes)
 
 
 def plot_reserve_overview(results):
@@ -419,5 +546,8 @@ def plot_reserve_overview(results):
 
 if __name__ == "__main__":
     results = run_simulation()
-    plot_reserve_overview(results)
+    if SHOW_RESERVE_OVERVIEW:
+        plot_reserve_overview(results)
+    if SHOW_DETAILED_PLOT:
+        plot_results(results)
     plt.show()
