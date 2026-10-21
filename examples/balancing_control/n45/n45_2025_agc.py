@@ -39,11 +39,11 @@ from agc import (
 # STUDY SETTINGS
 # =============================================================================
 
-EVENT_TIME = 1.0
-T_END = 300.0
+EVENT_TIME = 1.0    #Forstyrrelsen skjer ved t = 1
+T_END = 300.0       #Simuleringen varer i 300 s (5 min).
 MAX_STEP = 5e-3
 FINAL_AVERAGING_WINDOW_S = 5.0
-RESTORATION_BAND_HZ = 0.01
+RESTORATION_BAND_HZ = 0.01  #Frekvensen regnes som tilbake når den holder seg innenfor ±10 mHz av 50 Hz.
 
 # Disturbance: "load_step" or "hvdc_reduction"
 DISTURBANCE = "load_step"
@@ -51,8 +51,7 @@ DISTURBANCE = "load_step"
 LOAD_NAME = "L5240-1"           # load_step
 LOAD_STEP_MW = 1000.0
 
-
-HVDC_EVENT_LINK = "NO_2-DE"     # hvdc_reduction
+HVDC_EVENT_LINK = "NO_2-DE"     # hvdc_reduction #Ved HVDC-reduksjon: importen på NO_2-DE settes fra 900 til 0 MW.
 HVDC_EVENT_NEW_MW = 0.0
 
 REGION_AREA_CODES = {
@@ -70,7 +69,7 @@ SHOW_DETAILED_PLOT = True
 # AGC SETTINGS
 # =============================================================================
 
-AGC_ENABLED = True
+AGC_ENABLED = False
 T_F = 2.0                       # Low-pass filter time constant (s)
 T_I = 100.0                     # Integral time (s); K_i = B / T_i
 K_P = 0.0                       # Proportional gain (MW/Hz); 0 = pure integral
