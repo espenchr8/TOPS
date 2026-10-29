@@ -204,17 +204,17 @@ def main():
     axes[0].ticklabel_format(axis="y", useOffset=False)
     axes[0].plot(t[-1], coi[-1], "rx", ms=7, mew=2,
                  label=f"Final value: {coi[-1]:.4f} Hz")
-    axes[0].set_title("Generator frequencies and system average")
+    axes[0].set_title("(a) Generator frequencies and system average")
     axes[1].plot(t, pm-pm[0], label="With B9 load step")
     axes[1].plot(baseline[0], baseline[3]-baseline[3][0], "--", label="No disturbance")
     axes[1].set_ylabel("$\\Delta P_m$ [MW]")
-    axes[1].set_title("Combined turbine response of G1-G4")
+    axes[1].set_title("(b) Combined turbine response of G1-G4")
     # AVR control objective. B8/B9 voltages are printed in the terminal.
     for i, name in enumerate(names):
         axes[2].plot(t, 100*vt_error[:, i], color=f"C{i}", label=name)
     axes[2].axhline(0, color="gray", ls="--", lw=0.8, label="AVR setpoint")
     axes[2].set_ylabel("$V_t - V_{ref}$ [%]")
-    axes[2].set_title("AVR control objective: generator terminal voltage")
+    axes[2].set_title("(c) AVR control objective: generator terminal voltage")
     axes[2].set_xlabel("Time [s]")
     for ax in axes:
         ax.axvline(T_EVENT, color="gray", ls=":", label="B9 load added")
