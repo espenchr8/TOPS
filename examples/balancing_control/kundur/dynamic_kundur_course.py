@@ -226,6 +226,9 @@ def main():
     output_file = Path(__file__).resolve().parent / "dynamic_response.png"
     fig.savefig(output_file, dpi=300, bbox_inches="tight", pad_inches=0.02,
                 facecolor="white")
+    # Vector version for LaTeX: sharp text at any zoom.
+    fig.savefig(output_file.with_suffix(".pdf"), bbox_inches="tight",
+                pad_inches=0.02)
     plt.show()
 
 

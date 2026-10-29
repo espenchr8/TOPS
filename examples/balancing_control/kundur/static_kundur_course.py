@@ -24,7 +24,7 @@ import tops.dynamic as dps
 from tops.ps_models import k2a_course as model_data
 
 
-# Chosen limits for comparison.
+# Chosen limits for comparison, not documented operating limits.
 SHOW_DETAILS = False  # True prints all buses and lines for each case.
 V_MIN = 0.90
 TRANSFER_CHANGE = 100.0  # MW shifted between areas, not extra total demand.
@@ -339,8 +339,7 @@ def plot_static(cases, results):
     ax_a.set_ylabel("Loading [%]")
     ax_a.set_ylim(0, 115)
     ax_a.set_title("(a)", loc="left", fontsize=7)
-    ax_a.legend(fontsize=6, loc="upper center", ncol=3, framealpha=0.9,
-                borderpad=0.3, handlelength=1.2)
+    ax_a.legend(fontsize=6, loc="upper center", ncol=3, framealpha=0.9, borderpad=0.3, handlelength=1.2)
     ax_a.grid(True, axis="y", alpha=0.3)
 
     # (b) Nose curves, same colours as (a): blue intact, green N-1
@@ -359,14 +358,15 @@ def plot_static(cases, results):
     ax_b.set_ylabel("B8 voltage [pu]")
     ax_b.set_title("(b)", loc="left", fontsize=7)
     ax_b.set_ylim(0.6, None)  # room for the legend below the curves
-    ax_b.legend(fontsize=6, loc="lower left", ncol=2, borderpad=0.3,
-                handlelength=1.8)
+    ax_b.legend(fontsize=6, loc="lower left", ncol=2, borderpad=0.3, handlelength=1.8)
     ax_b.grid(True, alpha=0.3)
 
     fig.tight_layout(w_pad=1.0, pad=0.3)
     # Comment out fig.savefig(...) to disable PNG saving.
     output_file = Path(__file__).resolve().parent / "static_combined.png"
-    fig.savefig(output_file, dpi=300, bbox_inches="tight",pad_inches=0.02, facecolor="white")
+    fig.savefig(output_file, dpi=300, bbox_inches="tight", pad_inches=0.02, facecolor="white")
+    # Vector version for LaTeX: sharp text at any zoom.
+    fig.savefig(output_file.with_suffix(".pdf"), bbox_inches="tight", pad_inches=0.02)
     print(f"\nFigure saved: {output_file.name}")
 
 
@@ -374,7 +374,7 @@ def main():
     data = model_data.load()  # Same data loading as the dynamic study.
     print("Kundur data from k2a_course.py.")
     print(f"System base {data['base_mva']} MVA. Slack bus {data['slack_bus']}.")
-    print(f"The {V_MIN} pu limit is from SO GL. Line limits are assumptions.")
+    print(f"The {V_MIN} pu threshold and line limits are assumptions, not equipment data.")
 
     cases = []
     for title, removed, transfer in (
