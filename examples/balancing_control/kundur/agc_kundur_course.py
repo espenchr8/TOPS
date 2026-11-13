@@ -161,7 +161,8 @@ def plot(no_agc, with_agc):
     """Same layout and style as the Part 1 figure."""
     t0, _, coi0, tie0, dpm0 = no_agc
     t, freq, coi, tie, dpm = with_agc
-    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(8, 4.2))
+    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(8, 4.6),
+                             gridspec_kw={"height_ratios": [1.5, 1, 1]})
     for i, name in enumerate(("G1", "G2", "G3", "G4")):
         axes[0].plot(t, freq[:, i], lw=0.8, alpha=0.6, label=name)
     axes[0].plot(t, coi, color="black", lw=1.5, label="COI with AGC")
@@ -186,6 +187,12 @@ def plot(no_agc, with_agc):
         ax.axvline(T_EVENT, color="gray", ls=":", label="B9 load added")
         ax.grid(True)
         ax.legend(fontsize=8, ncol=3)
+    # (a): a little room below the curves, so the legend does not hide them.
+    axes[0].set_ylim(bottom=49.935)
+    axes[0].legend(fontsize=8, ncol=4, loc="lower right")
+    # (b): legend on one row, above the curves.
+    axes[1].set_ylim(top=135)
+    axes[1].legend(fontsize=8, ncol=4, loc="upper left")
     fig.tight_layout()
 
     # Comment out fig.savefig(...) to disable saving.
