@@ -11,8 +11,8 @@ Part 2: nose curves for area 1 -> area 2 transfer
     The network (Y-bus, lines) comes from TOPS; validate() compares the solver
     with the TOPS power flow.
 
-Output: one combined figure (a) line loading, (b) nose curves, sized for a
-two-column IEEE figure (figure*).
+Output: two IEEE column-width figures, static_loading (Fig. 2) and
+static_nose (Fig. 3), as PNG and PDF.
 """
 
 import copy
@@ -312,62 +312,74 @@ def show_nose_summary(results):
 
 
 # =============================================================================
-# COMBINED FIGURE (IEEE figure*, full page width)
+# FIGURES (two IEEE column-width figures)
 # =============================================================================
 
-def plot_static(cases, results):
-    plt.rcParams.update({"font.size": 7})
-    fig, (ax_a, ax_b) = plt.subplots(
-        1, 2, figsize=(7.16, 1.6), gridspec_kw={"width_ratios": [1.15, 1]})
+def save(fig, name):
+    """Save as PNG and as PDF (vector, for LaTeX) next to this script."""
+    output_file = Path(__file__).resolve().parent / f"{name}.png"
+    fig.savefig(output_file, dpi=300, bbox_inches="tight", pad_inches=0.02,
+                facecolor="white")
+    fig.savefig(output_file.with_suffix(".pdf"), bbox_inches="tight",
+                pad_inches=0.02)
+    print(f"Figure saved: {output_file.stem} (.png/.pdf)")
 
-    # (a) Line loading for base case, N-1 and redispatch
+
+def plot_loading(cases):
+    """Fig. 2: line loading for base case, N-1 and redispatch."""
+    fig, ax = plt.subplots(figsize=(3.5, 1.9))
     group = [c for c in cases if c[0] != "Higher transfer"]
     line_names = list(LINE_LIMITS)
     positions = np.arange(len(line_names))
     width = 0.8 / len(group)
+    short = {"N-1 with changed generation": "N-1 + redispatch"}
     for i, (label, ps) in enumerate(group):
         names, sf, st = flows(ps)
         loading = {n: 100 * max(abs(a), abs(b)) / LINE_LIMITS[n]
                    for n, a, b in zip(names, sf, st)}
         values = [loading.get(n, np.nan) for n in line_names]  # no bar if out
         offset = (i - (len(group) - 1) / 2) * width
-        short = {"N-1 with changed generation": "N-1 + redispatch"}
-        ax_a.bar(positions + offset, values, width, color=COLORS[label],
-                 label=short.get(label, label))
-    ax_a.axhline(100, color="gray", ls="--", lw=0.8)
-    ax_a.set_xticks(positions, line_names, rotation=0, fontsize=6)
-    ax_a.set_ylabel("Loading [%]")
-    ax_a.set_ylim(0, 115)
-    ax_a.set_title("(a)", loc="left", fontsize=7)
-    ax_a.legend(fontsize=6, loc="upper center", ncol=3, framealpha=0.9, borderpad=0.3, handlelength=1.2)
-    ax_a.grid(True, axis="y", alpha=0.3)
+        ax.bar(positions + offset, values, width, color=COLORS[label],
+               label=short.get(label, label))
+    ax.axhline(100, color="gray", ls="--", lw=0.8)
+    ax.set_xticks(positions, line_names, rotation=45, fontsize=6)
+    ax.set_ylabel("Loading [%]")
+    ax.set_ylim(0, 115)
+    ax.legend(fontsize=6, loc="upper center", ncol=3, framealpha=0.9,
+              borderpad=0.3, handlelength=1.2)
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout(pad=0.3)
+    save(fig, "static_loading")
 
-    # (b) Nose curves, same colours as (a): blue intact, green N-1
+
+def plot_nose(results):
+    """Fig. 3: nose curves. Blue intact, green N-1, as in Fig. 2."""
+    fig, ax = plt.subplots(figsize=(3.5, 2.0))
     for label, outage, rows, events in results:
         color = COLORS["N-1"] if outage else COLORS["Base"]
         ls = "-" if "with" in label else "--"
-        ax_b.plot(rows[:, 1], rows[:, 2], ls, color=color, lw=1.2, label=label)
-        ax_b.plot(rows[-1, 1], rows[-1, 2], "o", color=color, ms=3)
+        ax.plot(rows[:, 1], rows[:, 2], ls, color=color, lw=1.2, label=label)
+        ax.plot(rows[-1, 1], rows[-1, 2], "o", color=color, ms=3)
         for name, r in events:
-            ax_b.plot(r[1], r[2], "v", color=color, ms=4)
-            ax_b.annotate(name, (r[1], r[2]), textcoords="offset points",
-                          xytext=(3, 3), fontsize=6.5, color=color)
-    ax_b.axvline(results[0][2][0, 1], color="gray", ls=":", lw=0.8)
-    ax_b.axhline(V_MIN, color="gray", ls="--", lw=0.8)
-    ax_b.set_xlabel("Transfer B7 → B8 [MW]")
-    ax_b.set_ylabel("B8 voltage [pu]")
-    ax_b.set_title("(b)", loc="left", fontsize=7)
-    ax_b.set_ylim(0.6, None)  # room for the legend below the curves
-    ax_b.legend(fontsize=6, loc="lower left", ncol=2, borderpad=0.3, handlelength=1.8)
-    ax_b.grid(True, alpha=0.3)
+            ax.plot(r[1], r[2], "v", color=color, ms=4)
+            ax.annotate(name, (r[1], r[2]), textcoords="offset points",
+                        xytext=(3, 3), fontsize=6.5, color=color)
+    ax.axvline(results[0][2][0, 1], color="gray", ls=":", lw=0.8)
+    ax.axhline(V_MIN, color="gray", ls="--", lw=0.8)
+    ax.set_xlabel("Transfer B7 → B8 [MW]")
+    ax.set_ylabel("B8 voltage [pu]")
+    ax.set_ylim(0.6, None)  # room for the legend below the curves
+    ax.legend(fontsize=6, loc="lower left", ncol=2, borderpad=0.3,
+              handlelength=1.8)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout(pad=0.3)
+    save(fig, "static_nose")
 
-    fig.tight_layout(w_pad=1.0, pad=0.3)
-    # Comment out fig.savefig(...) to disable PNG saving.
-    output_file = Path(__file__).resolve().parent / "static_combined.png"
-    fig.savefig(output_file, dpi=300, bbox_inches="tight", pad_inches=0.02, facecolor="white")
-    # Vector version for LaTeX: sharp text at any zoom.
-    fig.savefig(output_file.with_suffix(".pdf"), bbox_inches="tight", pad_inches=0.02)
-    print(f"\nFigure saved: {output_file.name}")
+
+def plot_static(cases, results):
+    plt.rcParams.update({"font.size": 7})
+    plot_loading(cases)
+    plot_nose(results)
 
 
 def main():
