@@ -269,19 +269,21 @@ def gain_sweep(lm):
 
 
 def plot(zeta, k_limit):
-    """Same style as the Part 1 and AGC figures."""
-    fig, ax = plt.subplots(figsize=(8, 1.9))
-    ax.semilogx(K_SWEEP, zeta, label="Inter-area mode")
-    ax.axvline(K_I, color="gray", ls=":", label=f"$K_I$ = {K_I:g} s$^{{-1}}$ (used)")
-    ax.plot(k_limit, 0, "rx", ms=7, mew=2,
+    """Column-width figure, same size and font as the other figures."""
+    plt.rcParams.update({"font.size": 7})
+    fig, ax = plt.subplots(figsize=(3.5, 1.5))
+    ax.semilogx(K_SWEEP, zeta, lw=1.0, label="Inter-area mode")
+    ax.axvline(K_I, color="gray", ls=":", lw=0.8,
+               label=f"$K_I$ = {K_I:g} s$^{{-1}}$ (used)")
+    ax.plot(k_limit, 0, "rx", ms=4, mew=1.2,
             label=f"Unstable from {k_limit:.1f} s$^{{-1}}$")
-    ax.axhline(0, color="gray", ls="--", lw=0.8)
+    ax.axhline(0, color="gray", ls="--", lw=0.6)
     ax.set_xlabel("AGC gain $K_I$ [s$^{-1}$]")
     ax.set_ylabel("Damping ratio $\\zeta$")
-    ax.set_title("Damping of the inter-area mode versus AGC gain")
-    ax.grid(True)
-    ax.legend(fontsize=8, ncol=3)
-    fig.tight_layout()
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=5.5, ncol=1, loc="lower left", handlelength=1.5,
+              borderpad=0.3)
+    fig.tight_layout(pad=0.3)
 
     output_file = Path(__file__).resolve().parent / "agc_eigen.png"
     fig.savefig(output_file, dpi=300, bbox_inches="tight", pad_inches=0.02,

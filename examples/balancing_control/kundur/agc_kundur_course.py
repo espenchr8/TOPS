@@ -158,42 +158,43 @@ def simulate(k_i):
 
 
 def plot(no_agc, with_agc):
-    """Same layout and style as the Part 1 figure."""
+    """Column-width figure, same size and font as the other figures."""
+    plt.rcParams.update({"font.size": 7})
     t0, _, coi0, tie0, dpm0 = no_agc
     t, freq, coi, tie, dpm = with_agc
-    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(8, 4.6),
+    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(3.5, 3.8),
                              gridspec_kw={"height_ratios": [1.5, 1, 1]})
     for i, name in enumerate(("G1", "G2", "G3", "G4")):
-        axes[0].plot(t, freq[:, i], lw=0.8, alpha=0.6, label=name)
-    axes[0].plot(t, coi, color="black", lw=1.5, label="COI with AGC")
-    axes[0].plot(t0, coi0, "--", color="gray", label="COI without AGC")
-    axes[0].plot(t[-1], coi[-1], "rx", ms=7, mew=2,
-                 label=f"Final value: {coi[-1]:.4f} Hz")
+        axes[0].plot(t, freq[:, i], lw=0.6, alpha=0.6, label=name)
+    axes[0].plot(t, coi, color="black", lw=1.0, label="COI with AGC")
+    axes[0].plot(t0, coi0, "--", color="gray", lw=0.8, label="COI without AGC")
+    axes[0].plot(t[-1], coi[-1], "rx", ms=4, mew=1.2,
+                 label=f"Final: {coi[-1]:.4f} Hz")
     axes[0].set_ylabel("Frequency [Hz]")
     axes[0].ticklabel_format(axis="y", useOffset=False)
-    axes[0].set_title(f"(a) Generator frequencies and system average, "
-                      f"AGC with $K_I$ = {K_I:g} s$^{{-1}}$")
+    axes[0].set_ylim(bottom=49.935)       # room for the legend below the curves
+    axes[0].set_title("(a) Generator frequencies and system average")
     for j, area in enumerate(AREAS):
-        axes[1].plot(t, dpm[:, j], color=f"C{j}", label=f"{area} with AGC")
-    axes[1].plot(t0, dpm0[:, 0], "--", color="gray", label="Each area without AGC")
+        axes[1].plot(t, dpm[:, j], color=f"C{j}", lw=1.0, label=f"{area} with AGC")
+    axes[1].plot(t0, dpm0[:, 0], "--", color="gray", lw=0.8,
+                 label="Each area without AGC")
     axes[1].set_ylabel("$\\Delta P_m$ [MW]")
+    axes[1].set_ylim(top=125)             # room for the legend above the curves
     axes[1].set_title("(b) Turbine response per area")
-    axes[2].plot(t, tie, label="With AGC")
-    axes[2].plot(t0, tie0, "--", color="gray", label="Without AGC")
+    axes[2].plot(t, tie, lw=1.0, label="With AGC")
+    axes[2].plot(t0, tie0, "--", color="gray", lw=0.8, label="Without AGC")
     axes[2].set_ylabel("$\\Delta P_{tie}$ [MW]")
     axes[2].set_title("(c) Change in corridor transfer B7-B8")
     axes[2].set_xlabel("Time [s]")
     for ax in axes:
-        ax.axvline(T_EVENT, color="gray", ls=":", label="B9 load added")
-        ax.grid(True)
-        ax.legend(fontsize=8, ncol=3)
-    # (a): a little room below the curves, so the legend does not hide them.
-    axes[0].set_ylim(bottom=49.935)
-    axes[0].legend(fontsize=8, ncol=4, loc="lower right")
-    # (b): legend on one row, above the curves.
-    axes[1].set_ylim(top=135)
-    axes[1].legend(fontsize=8, ncol=4, loc="upper left")
-    fig.tight_layout()
+        ax.axvline(T_EVENT, color="gray", ls=":", lw=0.8, label="B9 load added")
+        ax.grid(True, alpha=0.3)
+        ax.title.set_size(7)
+    style = dict(fontsize=5.5, handlelength=1.5, columnspacing=0.8, borderpad=0.3)
+    axes[0].legend(ncol=4, loc="lower right", **style)
+    axes[1].legend(ncol=2, loc="upper left", **style)
+    axes[2].legend(ncol=3, loc="center right", **style)
+    fig.tight_layout(pad=0.3, h_pad=0.3)
 
     # Comment out fig.savefig(...) to disable saving.
     output_file = Path(__file__).resolve().parent / "agc_response.png"
