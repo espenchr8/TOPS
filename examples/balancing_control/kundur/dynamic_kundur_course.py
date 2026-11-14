@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tops.dynamic as dps
 import tops.solvers as dps_sol
-from tops.ps_models import k2a_course as model_data
+from tops.ps_models import k2a as model_data
 
 from pathlib import Path
 
@@ -188,7 +188,7 @@ def simulate(disturbed=False):
 
 
 def main():
-    print("Kundur data from k2a_course.py. Dynamic RMS simulation in TOPS.")
+    print("Kundur data from k2a.py. Dynamic RMS simulation in TOPS.")
     print(f"Time solver: Modified Euler DAE. Time step: {DT:g} s")
     print("Both runs start from the original static base case.")
     baseline = simulate()

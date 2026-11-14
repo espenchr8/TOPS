@@ -1,4 +1,4 @@
-"""Kundur static study. Run from the TOPS folder with k2a_course.py installed.
+"""Kundur static study. Uses the Kundur model k2a.py that comes with TOPS.
 
 Part 1: contingency analysis with TOPS power flow
     Base case, higher transfer, N-1 (L7-8-1) and N-1 with changed generation.
@@ -21,7 +21,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import tops.dynamic as dps
-from tops.ps_models import k2a_course as model_data
+from tops.ps_models import k2a as model_data
 
 
 # Chosen limits for comparison, not documented operating limits.
@@ -31,7 +31,7 @@ TRANSFER_CHANGE = 100.0  # MW shifted between areas, not extra total demand.
 LINE_LIMITS = dict(zip(
     ("L5-6", "L6-7", "L7-8-1", "L7-8-2", "L8-9-1", "L8-9-2", "L9-10", "L10-11"),
     (900, 1800, 500, 500, 500, 500, 1800, 900)))
-# Line S_n=100 in k2a_course is an impedance base, not a thermal rating.
+# Line S_n=100 in k2a is an impedance base, not a thermal rating.
 
 OUTAGE = "L7-8-1"
 TIE_LINES = ("L7-8-1", "L7-8-2")
@@ -384,7 +384,7 @@ def plot_static(cases, results):
 
 def main():
     data = model_data.load()  # Same data loading as the dynamic study.
-    print("Kundur data from k2a_course.py.")
+    print("Kundur data from k2a.py.")
     print(f"System base {data['base_mva']} MVA. Slack bus {data['slack_bus']}.")
     print(f"The {V_MIN} pu threshold and line limits are assumptions, not equipment data.")
 

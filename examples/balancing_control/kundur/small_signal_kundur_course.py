@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tops.dynamic as dps
 from scipy.linalg import expm
-from tops.ps_models import k2a_course as model_data
+from tops.ps_models import k2a as model_data
 
 import agc_kundur_course as agc
 from agc_kundur_course import AREAS, K_I, tie_flow
@@ -295,7 +295,7 @@ def plot(zeta, k_limit):
 
 
 def main():
-    print("Kundur data from k2a_course.py. Linearized around the base case.")
+    print("Kundur data from k2a.py. Linearized around the base case.")
     print(f"Same AGC as agc_kundur_course.py. Step for central differences: {EPS:g}")
     lm = LinearModel()
     check_linear_model(lm)

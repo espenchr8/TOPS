@@ -3,7 +3,7 @@ all four generators share the increase (droop, equal ratings).
 Delta f = -(total generation increase)/K * f_n."""
 import copy
 import tops.dynamic as dps
-from tops.ps_models import k2a_course as model_data
+from tops.ps_models import k2a as model_data
 
 def solve(step):
     d = copy.deepcopy(model_data.load())

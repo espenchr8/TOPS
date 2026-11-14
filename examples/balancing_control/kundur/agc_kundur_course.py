@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tops.dynamic as dps
 import tops.solvers as dps_sol
-from tops.ps_models import k2a_course as model_data
+from tops.ps_models import k2a as model_data
 
 from dynamic_kundur_course import DT, LOAD_STEP_MW, T_EVENT, check_balance
 
@@ -207,7 +207,7 @@ def plot(no_agc, with_agc):
 
 
 def main():
-    print("Kundur data from k2a_course.py. Same setup and load step as Part 1.")
+    print("Kundur data from k2a.py. Same setup and load step as Part 1.")
     print(f"Time solver: Modified Euler DAE. Time step: {DT:g} s")
     print("Without AGC the result at 60 s should equal Part 1 "
           "(49.970689 Hz, 438.9 MW).")
