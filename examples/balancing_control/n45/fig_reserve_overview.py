@@ -66,10 +66,12 @@ ax2.axhline(50.0, color="k", lw=0.8)
 ax2.axhline(49.9, color="0.4", ls="--", lw=0.8)
 ax2.plot(x, f, color="k", lw=1.6)
 ax2.text(9.95, 49.87, "Standard frequency range (49.9\u201350.1 Hz)", ha="right",
-         va="top", fontsize=7.5, color="0.35")
+         va="top", fontsize=7.5, color="0.35",
+         bbox=dict(fc="white", ec="none", pad=1.0), zorder=5)
 ax2.axhline(49.0, color="0.4", ls=":", lw=0.9)
 ax2.text(9.95, 49.03, "Minimum instantaneous frequency", ha="right",
-         va="bottom", fontsize=7.5, color="0.35")
+         va="bottom", fontsize=7.5, color="0.35",
+         bbox=dict(fc="white", ec="none", pad=1.0), zorder=5)
 ax2.axhline(49.5, color="0.6", ls=":", lw=0.7)
 ax2.set_yticks([49.0, 49.5, 50.0])
 ax2.set_yticklabels(["49.0 Hz", "49.5 Hz", "50.0 Hz"])
