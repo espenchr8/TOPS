@@ -9,7 +9,8 @@ Who regulates in this simulation (the whole N45 network is simulated):
     Wind VSC (29)            no            no          no (constant power)
     Loads                    no            no          -
 
-Disturbances: a load step or a reduced HVDC import on one link.
+Disturbances: a load step, a reduced HVDC import on one link, or a
+net-load variation (time series) made by changing the wind-power set-points.
 The AGC model and its connections are in ../common/agc.py.
 """
 
@@ -40,19 +41,28 @@ from agc import (
 # =============================================================================
 
 EVENT_TIME = 1.0    #Forstyrrelsen skjer ved t = 1
-T_END = 300.0       #Simuleringen varer i 300 s (5 min).
+T_END = 600.0       #Simuleringen varer i 600 s (10 min).
 MAX_STEP = 5e-3
 FINAL_AVERAGING_WINDOW_S = 5.0
 RESTORATION_BAND_HZ = 0.01  #Frekvensen regnes som tilbake når den holder seg innenfor ±10 mHz av 50 Hz.
 
-# Disturbance: "load_step" or "hvdc_reduction"
-DISTURBANCE = "load_step"  #Forstyrrelsen er en reduksjon i HVDC-importen på NO_2-DE fra 900 MW til 0 MW.
+# Disturbance: "load_step", "hvdc_reduction" or "wind_variation"
+DISTURBANCE = "wind_variation"
 
 LOAD_NAME = "L5240-1"           # load_step
 LOAD_STEP_MW = 1000.0
 
 HVDC_EVENT_LINK = "NO_2-DE"     # hvdc_reduction #Ved HVDC-reduksjon: importen på NO_2-DE settes fra 900 til 0 MW.
 HVDC_EVENT_NEW_MW = 0.0
+
+# wind_variation: net-load increase = reduction of wind power. Shared between
+# all wind VSC in proportion to their output. Ramp from EVENT_TIME, then held,
+# with random fluctuations on top (same seed = same profile in every case).
+WIND_VARIATION_MW = 500.0       # Size of the ramp (MW)
+WIND_RAMP_S = 240.0             # Duration of the ramp (s)
+WIND_FLUCTUATION_MW = 50.0      # Peak size of the fluctuations (MW)
+WIND_FLUCTUATION_T_S = 10.0     # Time constant of the fluctuations (s)
+RANDOM_SEED = 1
 
 REGION_AREA_CODES = {
     "Norway": {11, 12, 13, 14, 15},
@@ -63,6 +73,11 @@ REGION_AREA_CODES = {
 # Plots: reserve overview (Statnett style) and/or the detailed 5-panel figure
 SHOW_RESERVE_OVERVIEW = True
 SHOW_DETAILED_PLOT = True
+
+# Case comparison: run case 0 (FCR only, AGC off) and case 1 (FCR + aFRR with
+# the AGC settings below) one after the other, plot them together and print a
+# table. Takes about twice as long. The two plots above are then not shown.
+RUN_CASE_COMPARISON = True
 
 
 # =============================================================================
@@ -77,6 +92,33 @@ HYDRO_AGC_UNITS = None          # None = all HYGOV units
 THERMAL_AGC_UNITS = []          # e.g. ["G3000-1"]; empty = no thermal units
 HVDC_SHARE = 0.0               # Share of the AGC command sent via HVDC
 HVDC_LINK_SPLIT = {"NO_2-GB": 1.0}
+
+# Text for plot titles
+AGC_TEXT = (
+    f"T_i = {T_I:.0f} s, HVDC share = {HVDC_SHARE:.0%}" if AGC_ENABLED else "AGC off (FCR only)"
+)
+
+
+def wind_variation_profile(t_end):
+    """Net-load increase (MW) as a function of time for "wind_variation".
+
+    A linear ramp of WIND_VARIATION_MW over WIND_RAMP_S from EVENT_TIME, then
+    held. Fluctuations: random noise filtered with time constant
+    WIND_FLUCTUATION_T_S (1 s grid), scaled to a peak of WIND_FLUCTUATION_MW
+    and faded in over the first 30 s. Returns a function of time.
+    """
+    rng = np.random.default_rng(RANDOM_SEED)
+    t_grid = np.arange(0.0, t_end + 2.0, 1.0)
+    a = np.exp(-1.0 / WIND_FLUCTUATION_T_S)
+    noise = np.zeros_like(t_grid)
+    for k in range(1, len(t_grid)):
+        noise[k] = a * noise[k - 1] + np.sqrt(1.0 - a**2) * rng.standard_normal()
+    noise *= WIND_FLUCTUATION_MW / np.max(np.abs(noise))
+    noise *= np.clip((t_grid - EVENT_TIME) / 30.0, 0.0, 1.0)
+
+    ramp = WIND_VARIATION_MW * np.clip((t_grid - EVENT_TIME) / WIND_RAMP_S, 0.0, 1.0)
+    profile = ramp + noise
+    return lambda t: np.interp(t, t_grid, profile)
 
 
 def run_simulation():
@@ -196,6 +238,19 @@ def run_simulation():
             f"HVDC import {HVDC_EVENT_LINK} reduced "
             f"{initial_link_mw:.0f} -> {HVDC_EVENT_NEW_MW:.0f} MW"
         )
+    elif DISTURBANCE == "wind_variation":
+        # All wind VSC, shared in proportion to their initial output.
+        wind_idx = np.where(np.char.startswith(vsc_names, "WG"))[0]
+        wind_p_ref_0 = np.asarray(vsc._input_values["p_ref"], dtype=float)[wind_idx].copy()
+        wind_p0_mw = wind_p_ref_0 * vsc_s_n[wind_idx]
+        wind_share = wind_p0_mw / np.sum(wind_p0_mw)
+        net_load_mw = wind_variation_profile(T_END)
+        nominal_disturbance_mw = WIND_VARIATION_MW
+        event_text = (
+            f"Net-load variation +{WIND_VARIATION_MW:.0f} MW over {WIND_RAMP_S:.0f} s "
+            f"(wind power, {len(wind_idx)} units)"
+        )
+        print(f"Wind power before the variation: {np.sum(wind_p0_mw):.0f} MW")
     else:
         raise ValueError(f"Unknown disturbance type: {DISTURBANCE}")
 
@@ -242,7 +297,7 @@ def run_simulation():
             if DISTURBANCE == "load_step":
                 load.y_load[load_idx] += delta_y
                 ps.y_bus_red_mod[load_bus_idx, load_bus_idx] += delta_y
-            else:
+            elif DISTURBANCE == "hvdc_reduction":
                 # Reduced HVDC import (scheduled set-point change)
                 vsc.set_input(
                     "p_ref", HVDC_EVENT_NEW_MW / vsc_s_n[event_link_idx], idx=event_link_idx
@@ -256,6 +311,11 @@ def run_simulation():
                     - initial_load_mw
                 )
                 print("Actual immediate load increase:", f"{actual_step:.3f} MW")
+
+        if DISTURBANCE == "wind_variation":
+            # Wind power follows the profile: less wind = more net load.
+            delta_mw = net_load_mw(solver.t) * wind_share
+            vsc.set_input("p_ref", wind_p_ref_0 - delta_mw / vsc_s_n[wind_idx], idx=wind_idx)
 
         solver.step()
         store(solver.y, solver.v)
@@ -311,6 +371,12 @@ def run_simulation():
     vsc_power_mw = np.asarray(vsc_values)
     aggregate_vsc_change = np.sum(vsc_power_mw - vsc_power_mw[0], axis=1)
 
+    # Disturbance as a function of time (MW of extra net load), for the plots.
+    if DISTURBANCE == "wind_variation":
+        disturbance_mw = net_load_mw(t)
+    else:
+        disturbance_mw = nominal_disturbance_mw * (t >= EVENT_TIME)
+
     # =========================================================================
     # RESPONSE METRICS AND TERMINAL SUMMARY
     # =========================================================================
@@ -347,6 +413,11 @@ def run_simulation():
         f"{np.mean(total_governor_response[final_window]):.1f} MW",
     )
     print("Mean AGC command in final 5 s:", f"{np.mean(agc_command[final_window]):.1f} MW")
+    if DISTURBANCE == "wind_variation":
+        k_end = min(int(np.searchsorted(t, EVENT_TIME + WIND_RAMP_S)), len(t) - 1)
+        print(f"COI frequency at end of ramp: {coi_frequency[k_end]:.4f} Hz")
+        print(f"Std of COI frequency after start: {1e3 * np.std(coi_frequency[post_event]):.1f} mHz")
+        print(f"Time outside +-10 mHz: {np.sum(outside_band) * MAX_STEP:.0f} s")
     for k, name in enumerate(vsc_names[hvdc_idx]):
         print(f"  {name}: final change {np.mean(hvdc_change[final_window, k]):+.1f} MW")
 
@@ -362,6 +433,7 @@ def run_simulation():
         "afrr_to_hvdc": afrr_to_hvdc,
         "event_text": event_text,
         "nominal_disturbance_mw": nominal_disturbance_mw,
+        "disturbance_mw": disturbance_mw,
         # Detailed plot
         "regional_frequency": regional_frequency,
         "rocof": rocof,
@@ -382,8 +454,7 @@ def plot_results(results):
     fig, axes = plt.subplots(5, 1, sharex=True, figsize=(13, 15))
     fig.suptitle(
         "Nordic 45 (2025) – FCR and frequency-based AGC (aFRR)\n"
-        f"{results['event_text']}, t = {EVENT_TIME:.1f} s, "
-        f"T_i = {T_I:.0f} s, HVDC share = {HVDC_SHARE:.0%}",
+        f"{results['event_text']}, t = {EVENT_TIME:.1f} s, {AGC_TEXT}",
         y=0.985,
     )
 
@@ -408,7 +479,7 @@ def plot_results(results):
     axes[2].plot(t, results["tgov1_response"], label="TGOV1 (thermal)")
     axes[2].plot(t, results["total_governor_response"], "k", lw=2, label="Total governor (FCR + aFRR)")
     axes[2].plot(t, results["afrr_to_generators"], color="tab:green", ls="--", label="aFRR set-point (AGC)")
-    axes[2].axhline(results["nominal_disturbance_mw"], color="gray", ls=":", label="Nominal disturbance")
+    axes[2].plot(t, results["disturbance_mw"], color="gray", ls=":", label="Disturbance")
     axes[2].set_ylabel("Power response (MW)")
     axes[2].legend(ncol=2)
 
@@ -416,7 +487,7 @@ def plot_results(results):
     axes[3].plot(t, results["actual_load_increase"], label="Actual load increase")
     axes[3].plot(t, results["total_load_change"], label="Total load change (all loads)")
     axes[3].plot(t, results["aggregate_vsc_change"], label="Aggregate VSC response")
-    axes[3].axhline(results["nominal_disturbance_mw"], color="gray", ls=":", label="Nominal disturbance")
+    axes[3].plot(t, results["disturbance_mw"], color="gray", ls=":", label="Disturbance")
     axes[3].axhline(0.0, color="gray", ls=":")
     axes[3].set_ylabel("Power change (MW)")
     axes[3].legend(ncol=2)
@@ -467,7 +538,7 @@ def plot_reserve_overview(results):
     )
     fig.suptitle(
         "Reserve activation after a disturbance – Nordic 45 (2025)\n"
-        f"{results['event_text']}, T_i = {T_I:.0f} s, HVDC share = {HVDC_SHARE:.0%}"
+        f"{results['event_text']}, {AGC_TEXT}"
     )
 
     # =========================================================================
@@ -475,18 +546,19 @@ def plot_reserve_overview(results):
     # =========================================================================
 
     ax_p.plot(t, fcr, color="tab:blue", lw=2.5, label="FCR (governor droop)")
-    ax_p.plot(
-        t, results["agc_command"], color="tab:green", lw=2.5,
-        label="aFRR (AGC)",
-    )
+    if AGC_ENABLED:
+        ax_p.plot(
+            t, results["agc_command"], color="tab:green", lw=2.5,
+            label="aFRR (AGC)",
+        )
     if HVDC_SHARE > 0:
         ax_p.plot(
             t, results["afrr_to_hvdc"], color="tab:purple", lw=1.5, ls="--",
             label="  of which via HVDC",
         )
     ax_p.plot(t, total_response, color="black", lw=1.0, label="Total response")
-    ax_p.axhline(
-        results["nominal_disturbance_mw"], color="gray", ls="--", lw=1,
+    ax_p.plot(
+        t, results["disturbance_mw"], color="gray", ls="--", lw=1,
         label="Disturbance",
     )
     ax_p.axhline(0.0, color="gray", lw=0.8)
@@ -514,7 +586,10 @@ def plot_reserve_overview(results):
     # PHASE MARKERS (30 s, 2 min, 15 min after the event)
     # =========================================================================
 
-    for delay, label in ((30.0, "30 s"), (120.0, "2 min"), (900.0, "15 min")):
+    markers = ((30.0, "30 s"), (120.0, "2 min"), (900.0, "15 min"))
+    if DISTURBANCE == "wind_variation":
+        markers = ((WIND_RAMP_S, "End of ramp"),)
+    for delay, label in markers:
         t_mark = EVENT_TIME + delay
         if t_mark < t[-1]:
             for ax in (ax_p, ax_f):
@@ -524,6 +599,8 @@ def plot_reserve_overview(results):
 
     phase_labels = [("FCR", EVENT_TIME, EVENT_TIME + 120.0, "tab:blue"),
                     ("aFRR", EVENT_TIME + 120.0, min(EVENT_TIME + 900.0, t[-1]), "tab:green")]
+    if DISTURBANCE == "wind_variation" or not AGC_ENABLED:
+        phase_labels = []
     for text, start, end, color in phase_labels:
         if start < t[-1]:
             ax_f.text((start + end) / 2, 0.04, text, transform=ax_f.get_xaxis_transform(),
@@ -539,14 +616,104 @@ def plot_reserve_overview(results):
     fig.subplots_adjust(left=0.08, right=0.93, top=0.88, bottom=0.08)
 
 
+def case_metrics(results):
+    """Key numbers of one case, used in the comparison table."""
+    t = results["time"]
+    f = results["coi_frequency"]
+    f_n = results["nominal_frequency"]
+    after = t >= EVENT_TIME
+    final = t >= t[-1] - FINAL_AVERAGING_WINDOW_S
+    fcr = results["total_governor_response"] - results["afrr_to_generators"]
+
+    metrics = {"Minimum frequency (Hz)": f"{np.min(f[after]):.3f}"}
+    if DISTURBANCE == "wind_variation":
+        k_end = min(int(np.searchsorted(t, EVENT_TIME + WIND_RAMP_S)), len(t) - 1)
+        metrics["Frequency at end of ramp (Hz)"] = f"{f[k_end]:.3f}"
+    metrics["Mean frequency, final 5 s (Hz)"] = f"{np.mean(f[final]):.3f}"
+    metrics["Std of frequency (mHz)"] = f"{1e3 * np.std(f[after]):.1f}"
+    metrics["Time outside +-10 mHz (s)"] = f"{np.sum(after & (np.abs(f - f_n) > RESTORATION_BAND_HZ)) * MAX_STEP:.0f}"
+    metrics["FCR, final 5 s (MW)"] = f"{np.mean(fcr[final]):.0f}"
+    metrics["aFRR, final 5 s (MW)"] = f"{np.mean(results['agc_command'][final]):.0f}"
+    metrics["aFRR via HVDC, final 5 s (MW)"] = f"{np.mean(results['afrr_to_hvdc'][final]):.0f}"
+    return metrics
+
+
+def plot_case_comparison(results_0, results_1, label_1):
+    """Case 0 (FCR only) and case 1 (FCR + aFRR) in one figure.
+
+    Top:    frequency of both cases.
+    Bottom: FCR of both cases, aFRR of case 1 and the disturbance.
+    """
+    t = results_0["time"]
+    f_n = results_0["nominal_frequency"]
+    fcr_0 = results_0["total_governor_response"] - results_0["afrr_to_generators"]
+    fcr_1 = results_1["total_governor_response"] - results_1["afrr_to_generators"]
+
+    fig, (ax_f, ax_p) = plt.subplots(2, 1, sharex=True, figsize=(12, 8), gridspec_kw={"hspace": 0.12})
+    fig.suptitle(f"Case 0 and case 1 – Nordic 45 (2025)\n{results_0['event_text']}")
+
+    # Frequency
+    ax_f.plot(t, results_0["coi_frequency"], color="tab:red", lw=1.8, label="Case 0: FCR only")
+    ax_f.plot(t, results_1["coi_frequency"], color="tab:blue", lw=1.8, label=f"Case 1: FCR + aFRR ({label_1})")
+    ax_f.axhline(f_n, color="black", lw=1)
+    ax_f.axhline(f_n - 0.1, color="gray", ls="--", lw=1)
+    ax_f.text(t[-1], f_n - 0.1, " 49.9 Hz", va="center", ha="left", color="gray")
+    ax_f.set_ylabel("Frequency, COI (Hz)")
+    ax_f.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
+    ax_f.legend(loc="lower left")
+
+    # Power: who covers the disturbance
+    ax_p.plot(t, results_0["disturbance_mw"], color="gray", ls="--", lw=1, label="Disturbance")
+    ax_p.plot(t, fcr_0, color="tab:red", lw=1.8, label="FCR, case 0")
+    ax_p.plot(t, fcr_1, color="tab:blue", lw=1.8, label="FCR, case 1")
+    ax_p.plot(t, results_1["agc_command"], color="tab:green", lw=2.2, label="aFRR, case 1")
+    if HVDC_SHARE > 0:
+        ax_p.plot(t, results_1["afrr_to_hvdc"], color="tab:purple", lw=1.5, ls="--",
+                  label="  of which via HVDC")
+    ax_p.axhline(0.0, color="gray", lw=0.8)
+    ax_p.set_ylabel("Power (MW)")
+    ax_p.set_xlabel("Time (s)")
+    ax_p.legend(loc="upper left", ncol=2)
+
+    for ax in (ax_f, ax_p):
+        ax.axvline(EVENT_TIME, color="black", ls=":", lw=1)
+        if DISTURBANCE == "wind_variation":
+            ax.axvline(EVENT_TIME + WIND_RAMP_S, color="tab:purple", ls="--", lw=1)
+        ax.set_xlim(0.0, t[-1])
+        ax.grid(True, alpha=0.4)
+    if DISTURBANCE == "wind_variation":
+        ax_f.text(EVENT_TIME + WIND_RAMP_S, 1.02, "End of ramp", transform=ax_f.get_xaxis_transform(),
+                  ha="center", va="bottom", color="tab:purple")
+    fig.align_ylabels((ax_f, ax_p))
+    fig.subplots_adjust(left=0.08, right=0.93, top=0.88, bottom=0.08)
+
+
 # =============================================================================
 # RUN SCRIPT
 # =============================================================================
 
 if __name__ == "__main__":
-    results = run_simulation()
-    if SHOW_RESERVE_OVERVIEW:
-        plot_reserve_overview(results)
-    if SHOW_DETAILED_PLOT:
-        plot_results(results)
+    if RUN_CASE_COMPARISON:
+        label_1 = f"T_i = {T_I:.0f} s, HVDC share = {HVDC_SHARE:.0%}"
+        print("\n=== Case 0: FCR only ===")
+        AGC_ENABLED = False
+        results_0 = run_simulation()
+        print("\n=== Case 1: FCR + aFRR ===")
+        AGC_ENABLED = True
+        results_1 = run_simulation()
+
+        m0, m1 = case_metrics(results_0), case_metrics(results_1)
+        print("\nCase comparison")
+        print("---------------")
+        print(f"{'':34s}{'Case 0':>10s}{'Case 1':>10s}")
+        for key in m0:
+            print(f"{key:34s}{m0[key]:>10s}{m1[key]:>10s}")
+
+        plot_case_comparison(results_0, results_1, label_1)
+    else:
+        results = run_simulation()
+        if SHOW_RESERVE_OVERVIEW:
+            plot_reserve_overview(results)
+        if SHOW_DETAILED_PLOT:
+            plot_results(results)
     plt.show()

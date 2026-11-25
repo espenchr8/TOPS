@@ -79,7 +79,7 @@ SHOW_DETAILED_PLOT = True
 # AGC SETTINGS
 # =============================================================================
 
-AGC_ENABLED = True
+AGC_ENABLED = False                     # True = AGC on, False = FCR only
 T_F = 2.0                       # Low-pass filter time constant (s)
 T_I = 100.0                     # Integral time (s); K_i = B / T_i
 K_P = 0.0                       # Proportional gain (MW/Hz); 0 = pure integral
