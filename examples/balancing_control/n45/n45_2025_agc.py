@@ -76,7 +76,8 @@ SHOW_DETAILED_PLOT = True
 
 # Case comparison: run case 0 (FCR only, AGC off) and case 1 (FCR + aFRR with
 # the AGC settings below) one after the other, plot them together and print a
-# table. Takes about twice as long. The two plots above are then not shown.
+# table. Takes about twice as long. The two plots above are shown for each
+# case if they are switched on (set them to False to get only the comparison).
 RUN_CASE_COMPARISON = True
 
 
@@ -416,7 +417,9 @@ def run_simulation():
     if DISTURBANCE == "wind_variation":
         k_end = min(int(np.searchsorted(t, EVENT_TIME + WIND_RAMP_S)), len(t) - 1)
         print(f"COI frequency at end of ramp: {coi_frequency[k_end]:.4f} Hz")
-        print(f"Std of COI frequency after start: {1e3 * np.std(coi_frequency[post_event]):.1f} mHz")
+        df_after = coi_frequency[post_event] - nominal_frequency
+        print(f"RMS of frequency deviation from 50 Hz: {1e3 * np.sqrt(np.mean(df_after**2)):.1f} mHz")
+        print(f"Max |frequency deviation|: {1e3 * np.max(np.abs(df_after)):.1f} mHz")
         print(f"Time outside +-10 mHz: {np.sum(outside_band) * MAX_STEP:.0f} s")
     for k, name in enumerate(vsc_names[hvdc_idx]):
         print(f"  {name}: final change {np.mean(hvdc_change[final_window, k]):+.1f} MW")
@@ -630,7 +633,9 @@ def case_metrics(results):
         k_end = min(int(np.searchsorted(t, EVENT_TIME + WIND_RAMP_S)), len(t) - 1)
         metrics["Frequency at end of ramp (Hz)"] = f"{f[k_end]:.3f}"
     metrics["Mean frequency, final 5 s (Hz)"] = f"{np.mean(f[final]):.3f}"
-    metrics["Std of frequency (mHz)"] = f"{1e3 * np.std(f[after]):.1f}"
+    df = f[after] - f_n   # deviation from 50 Hz
+    metrics["RMS of frequency deviation (mHz)"] = f"{1e3 * np.sqrt(np.mean(df**2)):.1f}"
+    metrics["Max |frequency deviation| (mHz)"] = f"{1e3 * np.max(np.abs(df)):.1f}"
     metrics["Time outside +-10 mHz (s)"] = f"{np.sum(after & (np.abs(f - f_n) > RESTORATION_BAND_HZ)) * MAX_STEP:.0f}"
     metrics["FCR, final 5 s (MW)"] = f"{np.mean(fcr[final]):.0f}"
     metrics["aFRR, final 5 s (MW)"] = f"{np.mean(results['agc_command'][final]):.0f}"
@@ -697,10 +702,21 @@ if __name__ == "__main__":
         label_1 = f"T_i = {T_I:.0f} s, HVDC share = {HVDC_SHARE:.0%}"
         print("\n=== Case 0: FCR only ===")
         AGC_ENABLED = False
+        AGC_TEXT = "AGC off (FCR only)"
         results_0 = run_simulation()
+        if SHOW_RESERVE_OVERVIEW:
+            plot_reserve_overview(results_0)
+        if SHOW_DETAILED_PLOT:
+            plot_results(results_0)
+
         print("\n=== Case 1: FCR + aFRR ===")
         AGC_ENABLED = True
+        AGC_TEXT = label_1
         results_1 = run_simulation()
+        if SHOW_RESERVE_OVERVIEW:
+            plot_reserve_overview(results_1)
+        if SHOW_DETAILED_PLOT:
+            plot_results(results_1)
 
         m0, m1 = case_metrics(results_0), case_metrics(results_1)
         print("\nCase comparison")
