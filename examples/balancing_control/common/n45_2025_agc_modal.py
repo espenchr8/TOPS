@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 
 import tops.dynamic as dps
 import tops.modal_analysis as dps_mdl
-import tops.ps_models.n45_2025 as model_data
+import tops.ps_models.n45_2025_rightload as model_data
 
 # AGC model (common/agc.py) and the settings of the simulation file
 # (n45/n45_2025_agc.py). Works whether this file is placed in common/ or n45/.

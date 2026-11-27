@@ -23,7 +23,7 @@ import numpy as np
 
 import tops.dynamic as dps
 import tops.solvers as dps_sol
-from tops.ps_models import n45_2025 as model_data
+from tops.ps_models import n45_2025_rightload as model_data
 
 # AGC: make examples/balancing_control/common importable
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
