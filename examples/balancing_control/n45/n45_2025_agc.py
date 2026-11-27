@@ -122,6 +122,59 @@ def wind_variation_profile(t_end):
     return lambda t: np.interp(t, t_grid, profile)
 
 
+def diagnose_initial_state(ps, gen, vsc, dx_initial, v_initial, tol=1e-5):
+    """Print which states are not in steady state at t = 0, and units that may be at a limit.
+
+    Only used when the initial equilibrium check fails. Does not change the model.
+    """
+    print("\nDiagnosis of the initial state")
+    print("------------------------------")
+    dx_abs = np.abs(np.asarray(dx_initial, dtype=float))
+
+    # 1) States with |dx/dt| > tol, per model and state name
+    models = getattr(ps, "dyn_mdls", None)
+    if models is None:
+        models = list(getattr(ps, "mdl_instances", {}).values())
+    found = []
+    for mdl in models:
+        try:
+            states = mdl.state_list()
+            idx_map = mdl.state_idx_global
+        except AttributeError:
+            continue
+        try:
+            names = np.asarray(mdl.par["name"], dtype=str)
+        except Exception:
+            names = None
+        for st in states:
+            idx = np.atleast_1d(idx_map[st])
+            if idx.size == 0:
+                continue
+            values = dx_abs[idx]
+            for k in np.where(values > tol)[0]:
+                unit = names[k] if names is not None and k < len(names) else str(k)
+                found.append((values[k], type(mdl).__name__, st, unit))
+    found.sort(reverse=True)
+    print(f"States with |dx/dt| > {tol:g}: {len(found)} (largest 15 shown)")
+    for value, model_name, st, unit in found[:15]:
+        print(f"  {model_name:10s} {st:12s} {unit:12s} |dx/dt| = {value:.3e}")
+
+    # 2) Generator loading (per unit of rating), e.g. the slack generators
+    gen_names = np.asarray(gen.par["name"], dtype=str)
+    pm0 = np.asarray(gen.P_m(ps.x0, v_initial), dtype=float)
+    high = np.where(pm0 > 0.95)[0]
+    print(f"Generators with P_m > 0.95 pu: {len(high)}")
+    for i in high:
+        print(f"  {gen_names[i]:10s} P_m = {pm0[i]:.3f} pu")
+
+    # 3) Converters with |p_ref| > 1 pu
+    vsc_names = np.asarray(vsc.par["name"], dtype=str)
+    p_ref = np.asarray(vsc._input_values["p_ref"], dtype=float)
+    for i in np.where(np.abs(p_ref) > 1.0)[0]:
+        print(f"  VSC {vsc_names[i]:10s} p_ref = {p_ref[i]:.3f} pu (above rating)")
+    print()
+
+
 def run_simulation():
 
     # =========================================================================
@@ -174,6 +227,7 @@ def run_simulation():
     dx_initial = ps.state_derivatives(0.0, ps.x0, v_initial)
     max_initial_derivative = float(np.max(np.abs(dx_initial)))
     if not ps.power_flow_ready or max_initial_derivative > 1e-5:
+        diagnose_initial_state(ps, gen, vsc, dx_initial, v_initial)
         raise RuntimeError(
             "Invalid initial operating point: "
             f"power_flow_ready={ps.power_flow_ready}, "
